@@ -125,6 +125,17 @@
         "root": {
           "type": "boolean"
         },
+        "scope": {
+          "enum": [
+            "runtime",
+            "dev",
+            "build",
+            "optional",
+            "peer",
+            "unknown",
+            null
+          ]
+        },
         "depends_on": {
           "type": "array",
           "items": {

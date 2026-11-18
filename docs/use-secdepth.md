@@ -1,17 +1,17 @@
 # Use the Secdepth Skill
 
-Use this procedure to investigate a code security issue in a project and review its linked findings. The skill guides an agent to check current advisories, map affected dependencies, and assess whether vulnerable code is reachable in the target.
+Use this procedure to scan a project for published vulnerabilities, or to investigate one named issue, and review the linked findings. The skill guides an agent to check current advisories, map affected dependencies, and assess whether vulnerable code is reachable in the target.
 
 ## Prerequisites
 
 - An AI agent that can read the target project and access current security advisories.
 - Python 3 to render the final report.
-- The CVE, incident, package, image, or product to investigate.
+- Optionally, a CVE, advisory ID, incident, package, image, or product to investigate. Without one, the skill scans the whole project.
 
 ## Steps
 
-1. Start the agent from the target project's root and invoke `secdepth`. Give it the issue identifier, any known SLA policy, and an optional report destination.
-2. Let the agent inspect manifests, lockfiles, deployment configuration, and relevant code. Unless you specify another destination, the agent creates `security-findings/` in its current working directory and keeps the draft and rendered report there.
+1. Start the agent from the target project's root and invoke the skill: `$secdepth` in Codex or `/secdepth` in Claude Code. Invoke it alone to scan every dependency, or add an issue identifier to check that issue only. Add any known SLA policy and an optional report destination. The skill does not ask which mode or dependency depth to use.
+2. Let the agent inspect manifests, lockfiles, deployment configuration, and relevant code. A scan covers direct, transitive, development, and build dependencies. When a lockfile is missing, the agent resolves one in a temporary copy so the target stays unchanged. Unless you specify another destination, the agent creates `security-findings/` in its current working directory and keeps the draft and rendered report there.
 3. Render `security-findings/draft.json` with the skill's renderer:
 
    ```sh

@@ -4,6 +4,18 @@
 
 Prefer CVE.org/NVD and the assigning CNA; the vendor or upstream project advisory and fixed release notes; then OSV, GHSA, and operating-system notices. Use exploit reports, scanners, and PoCs as supplemental sources. Capture `publisher`, `type`, `url`, `accessed_at`, and a short `supports` note. Never cite a search result page when the primary advisory is available.
 
+## Project scan
+
+Use this mode when the caller names no issue. The goal is complete coverage of published vulnerabilities, followed by the same per-finding analysis as a named issue.
+
+1. Inventory every ecosystem in the target: package manifests and lockfiles, vendored code, container base images, and build or CI tooling that ships with the product.
+2. Resolve the full dependency tree, direct and transitive. Prefer committed lockfiles. When an ecosystem has no lockfile, resolve one in a temporary copy outside the target with install scripts disabled (for example, `npm install --package-lock-only --ignore-scripts`), and record that versions were resolved on the scan date and may differ from a real install. Never install into, or write files in, the target repository.
+3. Query advisories for every resolved component, not only direct dependencies. Use OSV (including its batch query API) and GHSA as the primary bulk sources. Use read-only ecosystem auditors when available, such as `osv-scanner`, `npm audit --package-lock-only`, `pip-audit`, `govulncheck`, or `cargo audit`. When the target is itself a published package, also collect the advisories published for it.
+4. Merge aliases so one advisory known by several IDs (CVE, GHSA, OSV, distribution IDs) becomes one finding that lists every affected component and dependency path. Include withdrawn or rejected advisories that scanners may still report, and mark them `not-affected` with the withdrawal source.
+5. Analyze every finding. Do not sample, truncate, or skip transitive or development-only hits. A finding that cannot be fully assessed stays in the report as `undetermined` with the reason.
+
+Record coverage in `report.target`: `mode` (`named-issue` or `project-scan`), the ecosystems, manifests, and lockfiles inspected, how each tree was resolved, the advisory sources and tools queried with their access dates, the number of components checked, and any ecosystem or component that could not be checked. Set each component's `scope` (`runtime`, `dev`, `build`, `optional`, `peer`, or `unknown`) and `direct` flag so readers can see why a dev-only or transitive hit is or is not reachable.
+
 ## Local assessment
 
 Identify a root service, application, image, or library and give every component a stable ID. Trace direct and transitive edges from the root through manifests and lockfiles. Inspect configuration, build and deployment workflows, image metadata, and call sites or entry points. For every finding record:
