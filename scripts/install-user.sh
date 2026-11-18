@@ -3,6 +3,8 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 home_dir="${HOME:?HOME must be set}"
+# Claude Code reads skills from CLAUDE_CONFIG_DIR when it is set, not ~/.claude.
+claude_dir="${CLAUDE_CONFIG_DIR:-$home_dir/.claude}"
 skill_dir="$repo_root/skills/secdepth"
 agents=(codex claude)
 
@@ -52,7 +54,7 @@ for agent in "${agents[@]}"; do
     if [[ "$agent" == codex ]]; then
         link_once "$skill_dir" "$home_dir/.agents/skills/secdepth"
     else
-        link_once "$skill_dir" "$home_dir/.claude/skills/secdepth"
+        link_once "$skill_dir" "$claude_dir/skills/secdepth"
     fi
 done
 
