@@ -28,5 +28,5 @@ When reviewing the HTML, open a finding to inspect its applicability, affected c
 ## Related
 
 - [Use the Secdepth skill](use-secdepth.md)
-- [Report schema](../references/report-schema.json)
-- [Research and evidence guidance](../references/research-guidance.md)
+- [Report schema](../skills/secdepth/references/report-schema.json)
+- [Research and evidence guidance](../skills/secdepth/references/research-guidance.md)

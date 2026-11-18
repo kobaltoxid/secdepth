@@ -15,10 +15,10 @@ Use this procedure to investigate a code security issue in a project and review 
 3. Render `security-findings/draft.json` with the skill's renderer:
 
    ```sh
-   python3 /path/to/secdepth/scripts/render_report.py security-findings/draft.json
+   python3 skills/secdepth/scripts/render_report.py security-findings/draft.json
    ```
 
-   Replace `/path/to/secdepth` with the installed skill path. For a different report folder, pass `--output-dir` with that folder so the outputs stay beside the draft.
+   From an installed skill, use its `scripts/render_report.py` path instead. For a different report folder, pass `--output-dir` with that folder so the outputs stay beside the draft.
 4. Review the authoritative `report.json` and the searchable `report.html`. The HTML shows affected findings without a deployable fix first, affected findings with a feasible released fix next, and findings with no confirmed local exposure or incomplete assessment last.
 
 ## Verify
@@ -27,8 +27,8 @@ Confirm that the renderer produced `report.json` and `report.html` in the reques
 
 ## Related
 
-- [Skill workflow](../SKILL.md)
-- [Report schema](../references/report-schema.json)
-- [Research and evidence guidance](../references/research-guidance.md)
+- [Skill workflow](../skills/secdepth/SKILL.md)
+- [Report schema](../skills/secdepth/references/report-schema.json)
+- [Research and evidence guidance](../skills/secdepth/references/research-guidance.md)
 - [Report output reference](report-output.md)
 - [Project README](../README.md)
