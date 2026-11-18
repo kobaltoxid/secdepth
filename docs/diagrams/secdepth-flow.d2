@@ -1,0 +1,22 @@
+direction: down
+
+vars: {
+  d2-config: {
+    theme-id: 3
+    dark-theme-id: 200
+  }
+}
+
+issue: "Issue and target context\nCVE, project, SLA policy"
+agent: "Research agent\nFollows SKILL.md, reviews advisories and target code"
+draft: "security-findings/draft.json"
+renderer: "scripts/render_report.py\nNormalizes and orders findings"
+
+report_json: "security-findings/report.json\nCanonical report"
+report_html: "security-findings/report.html\nSelf-contained review"
+
+issue -> agent
+agent -> draft: records sourced findings
+draft -> renderer
+renderer -> report_json
+renderer -> report_html

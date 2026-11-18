@@ -1,0 +1,4 @@
+interface:
+  display_name: "Secdepth"
+  short_description: "Research CVEs and assess in-repo exploitability"
+  default_prompt: "Use $secdepth to investigate this code security issue, assess exploitability in the supplied repository, and write linked JSON and offline HTML findings under security-findings."

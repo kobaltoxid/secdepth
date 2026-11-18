@@ -1,0 +1,381 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Secdepth report",
+  "type": "object",
+  "required": [
+    "report",
+    "components",
+    "vulnerabilities",
+    "sources"
+  ],
+  "properties": {
+    "report": {
+      "type": "object",
+      "required": [
+        "title",
+        "generated_at",
+        "root_component_id"
+      ],
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "generated_at": {
+          "type": "string"
+        },
+        "root_component_id": {
+          "type": "string"
+        },
+        "target": {
+          "type": "object"
+        },
+        "ordering_policy": {
+          "type": "string"
+        }
+      }
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/component"
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "vulnerabilities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "required": [
+        "id",
+        "url",
+        "publisher",
+        "type",
+        "accessed_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https?://"
+        },
+        "publisher": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "accessed_at": {
+          "type": "string"
+        },
+        "supports": {
+          "type": "string"
+        }
+      }
+    },
+    "component": {
+      "type": "object",
+      "required": [
+        "id",
+        "name"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "ecosystem": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "manifest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "direct": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "root": {
+          "type": "boolean"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "required": [
+        "id",
+        "description",
+        "applicability",
+        "affected_component_ids",
+        "exploitability",
+        "update_status",
+        "feasibility",
+        "sources"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "applicability": {
+          "enum": [
+            "affected",
+            "not-affected",
+            "unknown",
+            "undetermined"
+          ]
+        },
+        "affected_component_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "affected_ranges": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cvss": {
+          "type": "object",
+          "properties": {
+            "score": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "severity": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "vector": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "cwe": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "sla": {
+          "type": "object",
+          "properties": {
+            "priority_rank": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "due_date": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "exploitability": {
+          "type": "object",
+          "required": [
+            "presence",
+            "reachability",
+            "confidence"
+          ],
+          "properties": {
+            "presence": {
+              "enum": [
+                "present",
+                "absent",
+                "unknown",
+                "undetermined"
+              ]
+            },
+            "reachability": {
+              "enum": [
+                "reachable",
+                "not-reachable",
+                "conditional",
+                "unknown"
+              ]
+            },
+            "attack_preconditions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "confidence": {
+              "enum": [
+                "high",
+                "medium",
+                "low",
+                "unknown"
+              ]
+            }
+          }
+        },
+        "update_status": {
+          "enum": [
+            "released",
+            "planned",
+            "mitigation-only",
+            "no-fix",
+            "unknown"
+          ]
+        },
+        "recommended_target_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "feasibility": {
+          "enum": [
+            "feasible",
+            "blocked",
+            "impossible",
+            "unknown"
+          ]
+        },
+        "patch_eta": {
+          "type": "object",
+          "required": [
+            "certainty",
+            "source_ids"
+          ],
+          "properties": {
+            "date": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "certainty": {
+              "enum": [
+                "confirmed",
+                "estimated",
+                "unknown"
+              ]
+            },
+            "source_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "recommendation": {
+          "type": "string"
+        },
+        "temporary_mitigations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dependency_paths": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "claim",
+              "source_ids"
+            ],
+            "properties": {
+              "claim": {
+                "type": "string"
+              },
+              "source_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
