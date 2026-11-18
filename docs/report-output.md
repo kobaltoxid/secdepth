@@ -21,7 +21,7 @@ Within each section, findings with an SLA rank come first, ordered by ascending 
 | `report.json` | Contains the normalized report, finding order, `ordering_policy`, and counts in `finding_groups`. |
 | `report.html` | Embeds the canonical JSON, filters findings by searchable text, expands finding details, and links to valid HTTP or HTTPS sources. |
 
-Run `scripts/render_report.py` with a draft JSON file. By default, both files are written to `security-findings/` under the command's current working directory. Pass `--output-dir` to select another folder. The renderer does not validate drafts against the JSON schema.
+From the repository root, run `skills/secdepth/scripts/render_report.py` with a draft JSON file. From an installed skill, use its `scripts/render_report.py` path. By default, both files are written to `security-findings/` under the command's current working directory. Pass `--output-dir` to select another folder. The renderer does not validate drafts against the JSON schema.
 
 When reviewing the HTML, open a finding to inspect its applicability, affected components, exploitability evidence, update recommendation, dependency path, and cited sources. An unavailable path or source record is shown as unavailable in the page.
 
