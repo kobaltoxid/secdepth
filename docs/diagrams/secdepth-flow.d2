@@ -1,4 +1,4 @@
-direction: down
+direction: right
 
 vars: {
   d2-config: {
@@ -7,16 +7,15 @@ vars: {
   }
 }
 
-issue: "Issue and target context\nCVE, project, SLA policy"
-agent: "Research agent\nFollows SKILL.md, reviews advisories and target code"
-draft: "security-findings/draft.json"
-renderer: "skills/secdepth/scripts/render_report.py\nNormalizes and orders findings"
+analyst: Analyst {
+  shape: person
+}
 
-report_json: "security-findings/report.json\nCanonical report"
-report_html: "security-findings/report.html\nSelf-contained review"
+secdepth: Secdepth
 
-issue -> agent
-agent -> draft: records sourced findings
-draft -> renderer
-renderer -> report_json
-renderer -> report_html
+reports: "JSON and HTML\nreports" {
+  shape: document
+}
+
+analyst -> secdepth: issue
+secdepth -> reports: findings
