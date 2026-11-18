@@ -43,19 +43,23 @@ By default, the reports go in `security-findings/`. Use `report.json` as the aut
 
 ## Example results
 
-The screenshots below show the output of one run. The scanned project's name is replaced with `project`.
+The screenshots below show a project scan of an older release of an open-source web framework. The scan covered 282 resolved packages, 49 runtime and 233 development-only, and reported 64 advisories. The scanned project's name is replaced with `project`.
 
 ![The security-findings folder containing draft.json, report.html, and report.json.](docs/images/security-findings-files.png)
 
 Figure 2. The run writes only `security-findings/`, which keeps the agent's draft beside the rendered reports.
 
-![The HTML report listing six CVEs, all grouped under no confirmed local exposure.](docs/images/report-overview.png)
+![The HTML report listing 16 runtime advisories under Fix available, followed by the no-confirmed-exposure group.](docs/images/report-overview.png)
 
-Figure 3. The report lists six advisories. None is confirmed to affect the project, so the two fix groups are empty.
+Figure 3. Sixteen runtime advisories have a deployable fix. The other 48 are development-only or do not match the scanned version.
 
-![An expanded finding for CVE-2024-51999 showing applicability, exploitability evidence, recommendation, and cited sources.](docs/images/report-finding-detail.png)
+![An expanded qs prototype pollution finding marked reachable, with file and line evidence and the dependency path.](docs/images/report-finding-reachable.png)
 
-Figure 4. CVE-2024-51999 was rejected as issued in error. The finding cites the rejection and recommends suppressing stale scanner results.
+Figure 4. CVE-2022-24999 is reachable by default because the framework parses every query string with the vulnerable qs version.
+
+![An expanded critical handlebars finding marked not affected because the package is a development dependency.](docs/images/report-finding-dev-only.png)
+
+Figure 5. A critical CVSS score does not mean exposure. This handlebars advisory affects only a development dependency that the published package never installs.
 
 ## Disclaimer
 
