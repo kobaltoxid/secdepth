@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Secdepth component inventory",
+  "description": "Deterministic hand-off between component producers (secdepth's source resolver, binary analysis) and secdepth's advisory matcher.",
+  "type": "object",
+  "required": ["schema", "schema_version", "generated_at", "producer", "target", "root_component_id", "components", "coverage"],
+  "properties": {
+    "schema": {"const": "secdepth-inventory"},
+    "schema_version": {"const": "1.0"},
+    "generated_at": {"type": "string", "description": "UTC timestamp, RFC 3339."},
+    "producer": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"type": "string"},
+        "version": {"type": "string"}
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": {"enum": ["source", "artifact"]},
+        "path": {"type": "string", "description": "Path as given by the caller; never rewritten to an absolute path that leaks a home directory."},
+        "ref": {"type": ["string", "null"], "description": "Commit, tag or branch for source targets."},
+        "sha256": {"type": ["string", "null"], "description": "Digest of an artifact target."}
+      }
+    },
+    "root_component_id": {"type": "string"},
+    "components": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/component"}
+    },
+    "coverage": {"$ref": "#/$defs/coverage"},
+    "resolution": {
+      "type": "array",
+      "description": "How versions were resolved, for example a lockfile generated in a temporary copy on a given date.",
+      "items": {"type": "string"}
+    }
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "required": ["id", "name", "ecosystem", "scope", "evidence"],
+      "properties": {
+        "id": {"type": "string", "description": "Stable ID, conventionally <ecosystem>:<name>@<version>."},
+        "name": {"type": "string"},
+        "ecosystem": {"type": "string", "description": "OSV ecosystem name (npm, PyPI, Maven, Go, crates.io, NuGet, Debian, Alpine, ...) or 'native' for components without a package identity."},
+        "version": {"type": ["string", "null"], "description": "Exact version, or null when unknown."},
+        "version_range": {"type": ["string", "null"], "description": "Candidate range when evidence narrows but does not fix the version."},
+        "purl": {"type": ["string", "null"]},
+        "cpe": {"type": ["string", "null"]},
+        "distro": {
+          "type": ["object", "null"],
+          "description": "Set for operating-system packages so lookups use the distribution's own (backport-aware) advisories.",
+          "properties": {
+            "name": {"type": "string"},
+            "release": {"type": "string"}
+          }
+        },
+        "scope": {"enum": ["runtime", "dev", "build", "optional", "peer", "unknown"]},
+        "direct": {"type": ["boolean", "null"]},
+        "root": {"type": "boolean"},
+        "manifest": {"type": ["string", "null"]},
+        "depends_on": {"type": "array", "items": {"type": "string"}},
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/evidence"}
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["identifier", "location", "confidence"],
+      "properties": {
+        "identifier": {"type": "string", "description": "What produced the record, for example npm-lockfile, maven-pom-properties, go-buildinfo, version-string:openssl."},
+        "location": {"type": "string", "description": "File path inside the target or artifact, with an optional :line or @offset suffix."},
+        "detail": {"type": ["string", "null"], "description": "Matched value, such as the version string or manifest field."},
+        "confidence": {"enum": ["exact", "high", "medium", "low"]}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["complete", "entries"],
+      "properties": {
+        "complete": {"type": "boolean", "description": "True only when every entry is identified or deliberately skipped by policy."},
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "status"],
+            "properties": {
+              "path": {"type": "string"},
+              "status": {"enum": ["identified", "unidentified", "unpack-failed", "skipped", "tool-missing"]},
+              "reason": {"type": ["string", "null"]},
+              "type": {"type": ["string", "null"], "description": "Detected file type."},
+              "size": {"type": ["integer", "null"]}
+            }
+          }
+        },
+        "tools": {
+          "type": "array",
+          "description": "Optional external tools and whether they were available for this run.",
+          "items": {
+            "type": "object",
+            "required": ["name", "available"],
+            "properties": {
+              "name": {"type": "string"},
+              "available": {"type": "boolean"},
+              "version": {"type": ["string", "null"]}
+            }
+          }
+        }
+      }
+    }
+  }
+}
