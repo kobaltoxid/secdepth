@@ -24,7 +24,9 @@
               "required": ["component_id"],
               "properties": {
                 "component_id": {"type": "string", "description": "ID of an inventory component."},
-                "fixed": {"type": "array", "items": {"type": "string"}}
+                "fixed": {"type": "array", "items": {"type": "string"}},
+                "symbols": {"type": "array", "items": {"type": "string"},
+                            "description": "Added in 1.1. Vulnerable symbols from OSV: Go package path plus symbol (golang.org/x/crypto/ssh.NewServerConn) or Rust function path (regex::Regex::new)."}
               }
             }
           }

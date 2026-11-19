@@ -368,6 +368,18 @@ def nvd_advisory(record, component_id, cpe_name, fixed):
     }
 
 
+def osv_symbols(affected):
+    """Vulnerable symbols OSV records name: Go `imports` (package path plus symbol) and RustSec functions."""
+    specific = affected.get("ecosystem_specific") or {}
+    symbols = []
+    for imp in specific.get("imports") or []:
+        path = imp.get("path")
+        if path:
+            symbols.extend("%s.%s" % (path, s) for s in imp.get("symbols") or []) if imp.get("symbols") else symbols.append(path)
+    symbols.extend(f for f in ((specific.get("affects") or {}).get("functions") or []) if isinstance(f, str))
+    return symbols
+
+
 def canonical_id(ids):
     for prefix in ("CVE-", "GHSA-"):
         found = sorted(i for i in ids if i.startswith(prefix))
@@ -466,6 +478,9 @@ def match_inventory(data, matcher, enrich=True):
                         entry["ranges"] = sorted(set(entry["ranges"]) | set(ranges_text(aff)))
                         entry["fixed"] = sorted(set(entry["fixed"]) | set(fixed_versions_for(aff, comp["version"])),
                                                 key=lambda f: version_key(f) or (0,))
+                        symbols = osv_symbols(aff)
+                        if symbols:
+                            entry["symbols"] = sorted(set(entry.get("symbols", [])) | set(symbols))
         primary = next((r for r in recs if r.get("id", "").startswith("GHSA-")), recs[0])
         notes = []
         cves = sorted(i for i in ids if i.startswith("CVE-"))
@@ -525,7 +540,7 @@ def match_inventory(data, matcher, enrich=True):
     advisories.sort(key=sort_key)
     return {
         "schema": "secdepth-matches",
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "generated_at": now(),
         "producer": {"name": "secdepth-match", "version": VERSION},
         "root_component_id": data["root_component_id"],

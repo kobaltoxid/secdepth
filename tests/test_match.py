@@ -242,3 +242,13 @@ class OsvExportTests(unittest.TestCase):
         self.assertIsNotNone(by_id["GHSA-gone"]["withdrawn"])
         self.assertEqual(result["data_sources"][0]["accessed_at"], "Thu, 19 Nov 2026 07:00:00 GMT")
         self.assertTrue(result["offline"])
+
+
+class SymbolTests(unittest.TestCase):
+    def test_go_and_rust_symbols(self):
+        go = {"ecosystem_specific": {"imports": [{"path": "golang.org/x/crypto/ssh", "symbols": ["NewServerConn"]},
+                                                 {"path": "golang.org/x/crypto/acme"}]}}
+        self.assertEqual(match.osv_symbols(go), ["golang.org/x/crypto/ssh.NewServerConn", "golang.org/x/crypto/acme"])
+        rust = {"ecosystem_specific": {"affects": {"functions": ["regex::Regex::new"], "os": []}}}
+        self.assertEqual(match.osv_symbols(rust), ["regex::Regex::new"])
+        self.assertEqual(match.osv_symbols({}), [])

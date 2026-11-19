@@ -14,7 +14,7 @@ The inventory fields are explained in the [inventory format reference](inventory
 
 ## Fields readers rely on
 
-- From `matches.json`, `secpeel evidence` reads each advisory's `id`, `summary`, `details` and `affected[].component_id`.
+- From `matches.json`, `secpeel evidence` reads each advisory's `id`, `summary`, `details` and `affected[].component_id`. Since version 1.1 it also uses the optional `affected[].symbols`, the vulnerable Go symbols and Rust functions that OSV lists.
 - From `evidence.json`, `check.py` reads `results`, and each result's `advisory_id`, `component_id`, `proposed_reachability` and `facts`.
 
 Every schema lists only these relied-on fields as required. Writers may add other fields at any time.
