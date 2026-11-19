@@ -11,8 +11,10 @@ import argparse
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
+import tempfile
 
 SCRIPTS = pathlib.Path(__file__).resolve().parent
 REPO = SCRIPTS.parents[2]
@@ -59,12 +61,17 @@ def main(argv=None):
         home = secpeel_home()
         if home is None:
             sys.exit("secpeel not found: clone it next to secdepth or set SECPEEL_HOME")
-        step("identify components in %s" % target.name,
-             [sys.executable, "-m", "secpeel", "scan", target, "--output", inventory], cwd=home)
-        step("match advisories", script("match.py", inventory, "--output", matches, *match_opts))
-        step("look for the vulnerable code",
-             [sys.executable, "-m", "secpeel", "evidence", target, "--inventory", inventory, "--matches", matches,
-              "--output", out / "evidence.json"], cwd=home)
+        # One scratch folder for both secpeel steps, so evidence reuses the files the scan unpacked.
+        workdir = pathlib.Path(tempfile.mkdtemp(prefix="secdepth-unpacked-"))
+        try:
+            step("identify components in %s" % target.name,
+                 [sys.executable, "-m", "secpeel", "scan", target, "--output", inventory, "--workdir", workdir], cwd=home)
+            step("match advisories", script("match.py", inventory, "--output", matches, *match_opts))
+            step("look for the vulnerable code",
+                 [sys.executable, "-m", "secpeel", "evidence", target, "--inventory", inventory, "--matches", matches,
+                  "--output", out / "evidence.json", "--workdir", workdir], cwd=home)
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
         step("check reachability", script("check.py", inventory, matches, "--evidence", out / "evidence.json", "--output", checks))
     else:
         step("resolve dependencies", script("resolve.py", target, "--output", inventory))

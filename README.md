@@ -37,7 +37,6 @@ Detection is deterministic. Scripts resolve the dependency tree, match every com
 
 Components without a package identity, such as native libraries, are matched through NVD; set `NVD_API_KEY` to raise NVD's rate limit. For air-gapped use, download OSV's exports with `skills/secdepth/scripts/osvdata.py` and pass `--osv-data` to `match.py`.
 
-To scan a compiled artifact instead of source code, create the inventory with [secpeel](https://github.com/kobaltoxid/secpeel) and run the same matching, check and draft steps on it.
 
 Include your remediation deadlines or priority rules if they should guide the report. See the [use guide](docs/use-secdepth.md) and the [inventory format](docs/inventory-format.md).
 
@@ -46,6 +45,22 @@ Include your remediation deadlines or priority rules if they should guide the re
 Figure 1. Scripts build the draft; the model reviews only the findings they flag. [D2 source](docs/diagrams/secdepth-flow.d2)
 
 By default, the reports go in `security-findings/`. Use `report.json` as the authoritative record and open `report.html` to search findings, inspect dependency paths, and follow source links. See the [report output reference](docs/report-output.md).
+
+## Run it without an agent
+
+`scan.py` runs every stage in one command. What you pass decides the workflow:
+
+```sh
+python3 skills/secdepth/scripts/scan.py path/to/project   # a source folder
+python3 skills/secdepth/scripts/scan.py path/to/app.jar   # a compiled file
+```
+
+| Target | Stages | Calls to secpeel |
+| --- | --- | --- |
+| Source folder | resolve, match, check, draft, render | None |
+| Compiled file | `secpeel scan`, match, `secpeel evidence`, check, draft, render | Two, sharing one work folder |
+
+For a compiled file, secdepth looks for [secpeel](https://github.com/kobaltoxid/secpeel) next to its own folder or in `SECPEEL_HOME`. Reports go to `security-findings/` inside a source folder, or in the current folder for a compiled file. Add `--fix-check` for npm projects to verify that each upgrade clears its advisories.
 
 ## Example results
 
