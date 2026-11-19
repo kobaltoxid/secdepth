@@ -33,7 +33,9 @@ From the project root, invoke `$secdepth` in Codex or `/secdepth` in Claude Code
 - **Scan the project:** invoke it with no argument. It resolves the full dependency tree, including transitive, development, and build dependencies, finds every published vulnerability that matches, and analyzes how each one affects the project.
 - **Check one issue:** pass a CVE, GHSA, or other advisory ID, such as `/secdepth CVE-2021-44228`. Use this to check an issue that a scanner may have missed.
 
-Include your remediation deadlines or priority rules if they should guide the report. The agent checks primary advisories against the project's dependencies, configuration, and code. See the [use guide](docs/use-secdepth.md).
+Detection is deterministic. Scripts resolve the dependency tree, match every component against OSV advisories, collect reachability evidence from the code, and draft the report without a language model. The agent then reviews only the findings the scripts flag, such as conditional reachability, and writes the summary. npm projects are fully supported; other ecosystems are listed as coverage gaps until their resolvers are added.
+
+Include your remediation deadlines or priority rules if they should guide the report. See the [use guide](docs/use-secdepth.md) and the [inventory format](docs/inventory-format.md).
 
 ![An analyst requests a CVE check or a full scan from Secdepth, which produces JSON and HTML reports.](docs/diagrams/secdepth-flow.svg)
 

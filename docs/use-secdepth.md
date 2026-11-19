@@ -11,14 +11,18 @@ Use this procedure to scan a project for published vulnerabilities, or to invest
 ## Steps
 
 1. Start the agent from the target project's root and invoke the skill: `$secdepth` in Codex or `/secdepth` in Claude Code. Invoke it alone to scan every dependency, or add an issue identifier to check that issue only. Add any known SLA policy and an optional report destination. The skill does not ask which mode or dependency depth to use.
-2. Let the agent inspect manifests, lockfiles, deployment configuration, and relevant code. A scan covers direct, transitive, development, and build dependencies. When a lockfile is missing, the agent resolves one in a temporary copy so the target stays unchanged. Unless you specify another destination, the agent creates `security-findings/` in its current working directory and keeps the draft and rendered report there.
-3. Render `security-findings/draft.json` with the skill's renderer:
+2. Let the agent run the deterministic pipeline. It writes each stage to `security-findings/` in its current working directory:
 
    ```sh
+   python3 skills/secdepth/scripts/resolve.py .
+   python3 skills/secdepth/scripts/match.py security-findings/inventory.json
+   python3 skills/secdepth/scripts/check.py security-findings/inventory.json security-findings/matches.json . --fix-check
+   python3 skills/secdepth/scripts/draft.py security-findings/inventory.json security-findings/matches.json security-findings/checks.json
    python3 skills/secdepth/scripts/render_report.py security-findings/draft.json
    ```
 
-   From an installed skill, use its `scripts/render_report.py` path instead. For a different report folder, pass `--output-dir` with that folder so the outputs stay beside the draft.
+   From an installed skill, use its `scripts/` path instead. A scan covers direct, transitive, development, and build dependencies. When a lockfile is missing, `resolve.py` resolves one in a temporary copy so the target stays unchanged. You can run these commands yourself without an agent.
+3. Let the agent review the findings marked for review, mostly those with conditional reachability. It reads the cited call sites, sets the final verdict with evidence, and renders the report again.
 4. Review the authoritative `report.json` and the searchable `report.html`. The HTML shows affected findings without a deployable fix first, affected findings with a feasible released fix next, and findings with no confirmed local exposure or incomplete assessment last.
 
 ## Verify

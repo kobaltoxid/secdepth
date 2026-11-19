@@ -8,6 +8,8 @@ Prefer CVE.org/NVD and the assigning CNA; the vendor or upstream project advisor
 
 Use this mode when the caller names no issue. The goal is complete coverage of published vulnerabilities, followed by the same per-finding analysis as a named issue.
 
+For npm projects, `resolve.py`, `match.py`, `check.py` and `draft.py` perform steps 1 to 5 below without a language model. Follow the steps by hand only for ecosystems the resolver lists as unsupported in the inventory's coverage ledger.
+
 1. Inventory every ecosystem in the target: package manifests and lockfiles, vendored code, container base images, and build or CI tooling that ships with the product.
 2. Resolve the full dependency tree, direct and transitive. Prefer committed lockfiles. When an ecosystem has no lockfile, resolve one in a temporary copy outside the target with install scripts disabled (for example, `npm install --package-lock-only --ignore-scripts`), and record that versions were resolved on the scan date and may differ from a real install. Never install into, or write files in, the target repository.
 3. Query advisories for every resolved component, not only direct dependencies. Use OSV (including its batch query API) and GHSA as the primary bulk sources. Use read-only ecosystem auditors when available, such as `osv-scanner`, `npm audit --package-lock-only`, `pip-audit`, `govulncheck`, or `cargo audit`. When the target is itself a published package, also collect the advisories published for it.
