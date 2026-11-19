@@ -22,6 +22,8 @@ import urllib.request
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import inventory  # noqa: E402
+import osvdata  # noqa: E402
+import versions  # noqa: E402
 
 VERSION = "0.1.0"
 OSV_BATCH = "https://api.osv.dev/v1/querybatch"
@@ -143,9 +145,11 @@ def ranges_text(affected):
 # --- matching -------------------------------------------------------------------------------------
 
 class Matcher:
-    def __init__(self, fetch=http_fetch, cache_dir=None, offline=False, nvd_api_key=None, sleep=time.sleep):
+    def __init__(self, fetch=http_fetch, cache_dir=None, offline=False, nvd_api_key=None, sleep=time.sleep, osv_data=None):
         self.fetch = fetch
-        self.offline = offline
+        self.store = osvdata.Store(osv_data) if osv_data else None
+        self.offline = offline or self.store is not None
+        self.not_comparable = []
         self.nvd_api_key = nvd_api_key
         self.sleep = sleep
         self.cache = pathlib.Path(cache_dir) if cache_dir else None
@@ -164,6 +168,8 @@ class Matcher:
     def query(self, components):
         """Return {component_id: [(osv_id, modified)]} using OSV querybatch with pagination."""
         hits = {c["id"]: [] for c in components}
+        if self.store is not None:
+            return self._query_store(components, hits)
         if self.offline:
             cached = self._cached("querybatch.json") or {}
             return {cid: [tuple(x) for x in cached.get(cid, [])] for cid in hits}
@@ -188,7 +194,37 @@ class Matcher:
         self.sources.append({"name": "OSV querybatch", "url": OSV_BATCH, "accessed_at": now()})
         return hits
 
+    def _query_store(self, components, hits):
+        """Evaluate downloaded OSV records locally with exact per-ecosystem version comparison."""
+        used = set()
+        for comp in components:
+            eco = osv_ecosystem(comp)
+            base = eco.split(":")[0]
+            if not self.store.available(base):
+                self.not_comparable.append({"component_id": comp["id"], "reason": "no OSV export downloaded for %s" % base})
+                continue
+            used.add(base)
+            for record in self.store.records_for(base, comp["name"]):
+                for affected in record.get("affected") or []:
+                    pkg = affected.get("package") or {}
+                    same_eco = pkg.get("ecosystem") == eco or (":" not in eco and pkg.get("ecosystem", "").split(":")[0] == eco)
+                    if not same_eco or osvdata.normalise(base, pkg.get("name", "")) != osvdata.normalise(base, comp["name"]):
+                        continue
+                    verdict = versions.affects(affected, comp["version"], eco)
+                    if verdict is None:
+                        self.not_comparable.append({"component_id": comp["id"], "advisory": record["id"],
+                                                    "reason": "version could not be compared in %s" % eco})
+                    elif verdict and (record["id"], record.get("modified")) not in hits[comp["id"]]:
+                        hits[comp["id"]].append((record["id"], record.get("modified")))
+        for base in sorted(used):
+            meta = self.store.meta(base)
+            self.sources.append({"name": "OSV export %s" % base, "url": meta.get("url", osvdata.EXPORT % base),
+                                 "accessed_at": meta.get("last_modified") or meta.get("downloaded_at") or now()})
+        return hits
+
     def record(self, osv_id, modified=None):
+        if self.store is not None:
+            return self.store.record(osv_id)
         name = "vulns/%s.json" % osv_id
         cached = self._cached(name)
         if cached is not None and (self.offline or modified is None or cached.get("modified") == modified):
@@ -497,7 +533,7 @@ def match_inventory(data, matcher, enrich=True):
         "offline": matcher.offline,
         "components_queried": len(queryable) + len(cpe_queryable),
         "unqueried": unqueried,
-        "lookup_failures": failures,
+        "lookup_failures": failures + matcher.not_comparable,
         "advisories": advisories,
     }
 
@@ -508,6 +544,7 @@ def main(argv=None):
     parser.add_argument("--output", help="matches path (default: next to the inventory as matches.json)")
     parser.add_argument("--cache-dir", default=os.environ.get("SECDEPTH_CACHE", str(pathlib.Path.home() / ".cache" / "secdepth")))
     parser.add_argument("--offline", action="store_true", help="use only the cache; never touch the network")
+    parser.add_argument("--osv-data", help="match against OSV exports downloaded with osvdata.py (implies --offline)")
     parser.add_argument("--no-enrich", action="store_true", help="skip CISA KEV and EPSS")
     args = parser.parse_args(argv)
     try:
@@ -515,7 +552,8 @@ def main(argv=None):
     except (OSError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 1
-    matcher = Matcher(cache_dir=args.cache_dir, offline=args.offline, nvd_api_key=os.environ.get("NVD_API_KEY"))
+    matcher = Matcher(cache_dir=args.cache_dir, offline=args.offline, nvd_api_key=os.environ.get("NVD_API_KEY"),
+                      osv_data=args.osv_data)
     try:
         result = match_inventory(data, matcher, enrich=not args.no_enrich)
     except (urllib.error.URLError, OSError) as exc:

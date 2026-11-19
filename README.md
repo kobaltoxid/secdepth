@@ -33,7 +33,9 @@ From the project root, invoke `$secdepth` in Codex or `/secdepth` in Claude Code
 - **Scan the project:** invoke it with no argument. It resolves the full dependency tree, including transitive, development, and build dependencies, finds every published vulnerability that matches, and analyzes how each one affects the project.
 - **Check one issue:** pass a CVE, GHSA, or other advisory ID, such as `/secdepth CVE-2021-44228`. Use this to check an issue that a scanner may have missed.
 
-Detection is deterministic. Scripts resolve the dependency tree, match every component against OSV advisories, collect reachability evidence from the code, and draft the report without a language model. The agent then reviews only the findings the scripts flag, such as conditional reachability, and writes the summary. The resolver reads npm, Cargo, Poetry, uv, pip, Go, NuGet, Gradle and Maven manifests; anything it cannot resolve is listed as a coverage gap. Components without a package identity, such as native libraries, are matched through NVD; set `NVD_API_KEY` to raise NVD's rate limit.
+Detection is deterministic. Scripts resolve the dependency tree, match every component against OSV advisories, collect reachability evidence from the code, and draft the report without a language model. The agent then reviews only the findings the scripts flag, such as conditional reachability, and writes the summary. The resolver reads npm, Cargo, Poetry, uv, pip, Go, NuGet, Gradle and Maven manifests; anything it cannot resolve is listed as a coverage gap.
+
+Components without a package identity, such as native libraries, are matched through NVD; set `NVD_API_KEY` to raise NVD's rate limit. For air-gapped use, download OSV's exports with `skills/secdepth/scripts/osvdata.py` and pass `--osv-data` to `match.py`.
 
 To scan a compiled artifact instead of source code, create the inventory with [binary-sca](https://github.com/kobaltoxid/binary-sca) and run the same matching, check and draft steps on it.
 

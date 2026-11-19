@@ -44,7 +44,7 @@ python3 <skill-dir>/scripts/render_report.py security-findings/draft.json
 ```
 
 - `resolve.py` lists manifests it cannot resolve yet in the inventory's coverage ledger. Report those gaps; do not treat a partial inventory as a clean scan. The format is described in [references/inventory-schema.json](references/inventory-schema.json).
-- `match.py` caches advisories in `~/.cache/secdepth`. Use `--offline` when the network is unavailable and say so in the summary.
+- `match.py` caches advisories in `~/.cache/secdepth`. Use `--offline` when the network is unavailable and say so in the summary. For fully offline runs, download OSV exports once with `osvdata.py download DIR npm PyPI ...` and pass `--osv-data DIR`; matching then uses exact per-ecosystem version comparison, includes withdrawn advisories, and records each export's date.
 - `check.py` proposes `not-reachable` or `conditional` for every advisory and component, and `unknown` for compiled artifacts. It claims `reachable` only from govulncheck's call graph for Go modules, when govulncheck is installed.
 - `draft.py` marks findings that need your review with `review.needed`.
 

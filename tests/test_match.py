@@ -207,3 +207,38 @@ class NvdTests(unittest.TestCase):
         nvd_calls = [c for c in calls if c[0].startswith(match.NVD_API)]
         self.assertEqual(nvd_calls[0][1], {"apiKey": "k"})
         self.assertIn("virtualMatchString=cpe:2.3:a:openssl:openssl:3.0.11", nvd_calls[0][0])
+
+
+class OsvExportTests(unittest.TestCase):
+    def test_offline_export_matching_includes_withdrawn(self):
+        import json as _json
+        import zipfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        folder = pathlib.Path(tmp.name) / "npm"
+        folder.mkdir()
+        records = {
+            "GHSA-live": {"id": "GHSA-live", "aliases": ["CVE-2022-1"], "modified": "m", "summary": "live",
+                          "affected": [{"package": {"name": "qs", "ecosystem": "npm"},
+                                        "ranges": [{"type": "SEMVER", "events": [{"introduced": "6.7.0"}, {"fixed": "6.7.3"}]}]}]},
+            "GHSA-gone": {"id": "GHSA-gone", "modified": "m", "summary": "withdrawn", "withdrawn": "2025-01-01T00:00:00Z",
+                          "affected": [{"package": {"name": "qs", "ecosystem": "npm"}, "versions": ["6.7.0"]}]},
+            "GHSA-other": {"id": "GHSA-other", "modified": "m", "summary": "fixed earlier",
+                           "affected": [{"package": {"name": "qs", "ecosystem": "npm"},
+                                         "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "6.0.0"}]}]}]},
+        }
+        with zipfile.ZipFile(folder / "all.zip", "w") as zf:
+            for rid, rec in records.items():
+                zf.writestr(rid + ".json", _json.dumps(rec))
+        (folder / "meta.json").write_text(_json.dumps({"last_modified": "Thu, 19 Nov 2026 07:00:00 GMT", "url": "u"}))
+
+        def no_network(url, payload=None, headers=None):
+            raise AssertionError("network used")
+
+        matcher = match.Matcher(fetch=no_network, osv_data=tmp.name)
+        result = match.match_inventory(inv(comp("npm:qs@6.7.0", "qs", "6.7.0")), matcher, enrich=False)
+        by_id = {a["id"]: a for a in result["advisories"]}
+        self.assertEqual(sorted(by_id), ["CVE-2022-1", "GHSA-gone"])
+        self.assertIsNotNone(by_id["GHSA-gone"]["withdrawn"])
+        self.assertEqual(result["data_sources"][0]["accessed_at"], "Thu, 19 Nov 2026 07:00:00 GMT")
+        self.assertTrue(result["offline"])
