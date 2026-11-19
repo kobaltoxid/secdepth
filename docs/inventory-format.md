@@ -21,7 +21,7 @@ The component inventory is the deterministic hand-off between tools that find co
 - Set `version` to `null` when the version is unknown. Put a candidate range in `version_range` instead of guessing a single version.
 - Set `distro` for operating-system packages. The matcher then uses the distribution's own advisories, which account for backported fixes.
 - Record `scope` and `direct` so readers can see why a development-only or transitive component is or is not reachable.
-- List every examined file in `coverage.entries` that was not identified, could not be unpacked, or was skipped because an optional tool was missing. Set `coverage.complete` to `true` only when no such entries exist; the validator rejects a complete inventory that lists failures.
+- List every examined file in `coverage.entries`: `identified`, `unidentified`, `unpacked` (a container whose contents were examined), `unpack-failed`, `skipped`, or `tool-missing` when an optional tool was needed but not installed. Set `coverage.complete` to `true` only when no entry is `unidentified`, `unpack-failed` or `tool-missing`; the validator rejects a complete inventory that lists any of them.
 
 ## Validate an inventory
 

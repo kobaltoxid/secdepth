@@ -92,7 +92,7 @@
             "required": ["path", "status"],
             "properties": {
               "path": {"type": "string"},
-              "status": {"enum": ["identified", "unidentified", "unpack-failed", "skipped", "tool-missing"]},
+              "status": {"enum": ["identified", "unidentified", "unpacked", "unpack-failed", "skipped", "tool-missing"]},
               "reason": {"type": ["string", "null"]},
               "type": {"type": ["string", "null"], "description": "Detected file type."},
               "size": {"type": ["integer", "null"]}

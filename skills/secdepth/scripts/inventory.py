@@ -12,7 +12,7 @@ SCHEMA = "secdepth-inventory"
 SCHEMA_VERSION = "1.0"
 SCOPES = {"runtime", "dev", "build", "optional", "peer", "unknown"}
 CONFIDENCE = {"exact", "high", "medium", "low"}
-COVERAGE_STATUS = {"identified", "unidentified", "unpack-failed", "skipped", "tool-missing"}
+COVERAGE_STATUS = {"identified", "unidentified", "unpacked", "unpack-failed", "skipped", "tool-missing"}
 TARGET_KINDS = {"source", "artifact"}
 
 
