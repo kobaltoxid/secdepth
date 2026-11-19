@@ -4,7 +4,7 @@ Secdepth is an agent skill for investigating CVEs and other code security issues
 
 ## Install
 
-In Codex, invoke `$skill-installer` with repository `kobaltoxid/secdepth` and skill path `skills/secdepth`. The repository is private, so installation requires GitHub access.
+In Codex, invoke `$skill-installer` with repository `kobaltoxid/secdepth` and skill path `skills/secdepth`.
 
 To install from a local clone for Codex and Claude Code:
 
@@ -87,3 +87,9 @@ Figure 5. A critical CVSS score does not mean exposure. This handlebars advisory
 Secdepth is an independent project. It is not affiliated with, endorsed by, or sponsored by the maintainers of any project it scans or any project shown in these examples. The example results are shown only to illustrate the report format.
 
 Reports are produced by an AI agent from public advisory data and may be incomplete or wrong. Verify findings against the cited sources before acting on them. Secdepth is provided as is, without warranty of any kind.
+
+This product uses the NVD API but is not endorsed or certified by the NVD.
+
+## License
+
+secdepth is licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) for attributions.
