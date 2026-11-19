@@ -10,6 +10,7 @@ import argparse
 import datetime
 import json
 import pathlib
+import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -21,6 +22,17 @@ MAX_DESCRIPTION = 900
 MAX_REFERENCES = 6
 
 
+def semver_compatible(current, fixed):
+    """True when `fixed` is a newer release on the same compatible line: same major, or same minor for 0.x."""
+    def parts(v):
+        nums = [int(n) for n in re.findall(r"\d+", (v or "").lstrip("vV").split("-", 1)[0].split("+", 1)[0])[:3]]
+        return nums + [0] * (3 - len(nums)) if nums else None
+    cur, fix = parts(current), parts(fixed)
+    if cur is None or fix is None or fix <= cur:
+        return False
+    return fix[0] == cur[0] and (cur[0] != 0 or fix[1] == cur[1])
+
+
 def access_date(value):
     return (value or datetime.date.today().isoformat())[:10]
 
@@ -28,6 +40,7 @@ def access_date(value):
 def build(data, matches, checks):
     components = {c["id"]: c for c in data["components"]}
     root_id = data["root_component_id"]
+    is_artifact = data["target"]["kind"] == "artifact"
     by_pair = {(r["advisory_id"], r["component_id"]): r for r in checks["results"]}
     accessed = access_date(matches.get("generated_at"))
     sources, findings = {}, []
@@ -43,8 +56,10 @@ def build(data, matches, checks):
                    if (adv["id"], aff["component_id"]) in by_pair]
         if not results:
             continue
-        source_ids = [add_source("osv-" + url.rsplit("/", 1)[-1].lower(), url, "OSV.dev", "advisory", adv["summary"][:200])
-                      for url in adv["osv_urls"]]
+        urls = adv.get("advisory_urls") or adv.get("osv_urls") or []
+        source_ids = [add_source(("nvd-" if "nvd.nist.gov" in url else "osv-") + url.rsplit("/", 1)[-1].lower(), url,
+                                 "NVD" if "nvd.nist.gov" in url else "OSV.dev", "advisory", adv["summary"][:200])
+                      for url in urls]
         for i, ref in enumerate(adv["references"][:MAX_REFERENCES]):
             source_ids.append(add_source("%s-ref%d" % (adv["id"].lower(), i + 1), ref, ref.split("/")[2], "reference",
                                          "Reference listed by the advisory"))
@@ -87,10 +102,23 @@ def build(data, matches, checks):
             recommendation = "Upgrade to %s (newest release in the current major version, %s). A fresh resolution on %s " \
                              "no longer matches this advisory." % (upgraded, fix["upgrade"], fix["checked_at"][:10])
             feasibility = "feasible"
-        elif fixed:
+        elif fixed and is_artifact:
             target = first_fixed
-            recommendation = "Upgrade to a fixed version: %s. The upgrade path was not verified." % target
-            feasibility = "unknown"
+            recommendation = "Rebuild the artifact with, or obtain a vendor build that includes, %s." % target
+            feasibility = "feasible"
+        elif fixed:
+            compatible = [(components[aff["component_id"]], f) for aff in adv["affected"] for f in aff.get("fixed", [])
+                          if semver_compatible(components[aff["component_id"]].get("version"), f)]
+            if compatible and len({c["id"] for c, _ in compatible}) == len(adv["affected"]):
+                target = ", ".join(sorted({"%s %s" % (c["name"], f) for c, f in compatible}))
+                recommendation = "Update to %s, a semver-compatible release that fixes this advisory. The update was " \
+                                 "not verified by resolving it." % target
+                feasibility = "feasible"
+            else:
+                target = first_fixed
+                recommendation = "Upgrade to a fixed version: %s. It may need a breaking (major) upgrade; the upgrade " \
+                                 "path was not verified." % target
+                feasibility = "unknown"
         else:
             target, recommendation, feasibility = "unknown", "No fixed version is published in the advisory data.", "unknown"
         if not exposed:
@@ -133,10 +161,10 @@ def build(data, matches, checks):
             "recommendation": recommendation,
             "temporary_mitigations": [],
             "dependency_paths": [list(p) for p in {tuple(p) for p in paths}],
-            "claims": [{"claim": "Advisory data, affected ranges and fixed versions", "source_ids": source_ids[:len(adv["osv_urls"])]}],
+            "claims": [{"claim": "Advisory data, affected ranges and fixed versions", "source_ids": source_ids[:len(urls)]}],
             "sources": source_ids,
-            "review": {"needed": reachability == "conditional" or bool(adv.get("notes")),
-                       "reason": "conditional reachability" if reachability == "conditional" else
+            "review": {"needed": reachability in {"conditional", "unknown"} or bool(adv.get("notes")),
+                       "reason": "%s reachability" % reachability if reachability in {"conditional", "unknown"} else
                                  ("matcher notes" if adv.get("notes") else None)},
         })
 
@@ -144,11 +172,11 @@ def build(data, matches, checks):
     summary = inventory.coverage_summary(data)
     report = {
         "report": {
-            "title": "Project scan: %s %s" % (root["name"], root.get("version") or ""),
+            "title": "%s: %s %s" % ("Artifact scan" if is_artifact else "Project scan", root["name"], root.get("version") or ""),
             "generated_at": matches.get("generated_at") or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "root_component_id": root_id,
             "target": {
-                "mode": "project-scan",
+                "mode": "artifact-scan" if is_artifact else "project-scan",
                 "path": data["target"]["path"], "ref": data["target"].get("ref"),
                 "components_checked": len(data["components"]),
                 "runtime_components": sum(1 for c in data["components"] if c.get("scope") == "runtime"),

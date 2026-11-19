@@ -144,3 +144,66 @@ class MatchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OsvEcosystemTests(unittest.TestCase):
+    def test_distro_ecosystems(self):
+        c = lambda eco, release: {"ecosystem": eco, "distro": {"name": eco.lower(), "release": release} if release else None}
+        self.assertEqual(match.osv_ecosystem(c("Debian", "12")), "Debian:12")
+        self.assertEqual(match.osv_ecosystem(c("Alpine", "v3.19")), "Alpine:v3.19")
+        self.assertEqual(match.osv_ecosystem(c("Ubuntu", "22.04")), "Ubuntu:22.04:LTS")
+        self.assertEqual(match.osv_ecosystem(c("Ubuntu", "23.10")), "Ubuntu:23.10")
+        self.assertEqual(match.osv_ecosystem(c("npm", None)), "npm")
+
+
+def nvd_record(cve, criteria, status="Analyzed", **bounds):
+    return {"id": cve, "vulnStatus": status, "published": "2024-01-01T00:00:00", "lastModified": "2024-02-01T00:00:00",
+            "descriptions": [{"lang": "en", "value": "Issue in the library"}],
+            "metrics": {"cvssMetricV31": [{"type": "Primary", "cvssData": {
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", "baseScore": 9.8}}]},
+            "weaknesses": [{"description": [{"lang": "en", "value": "CWE-787"}]}],
+            "references": [{"url": "https://example.test/" + cve}],
+            "configurations": [{"nodes": [{"cpeMatch": [dict({"vulnerable": True, "criteria": criteria}, **bounds)]}]}]}
+
+
+class NvdTests(unittest.TestCase):
+    def test_range_and_platform_filtering(self):
+        in_range = nvd_record("CVE-1", "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*",
+                              versionStartIncluding="3.0.0", versionEndExcluding="3.0.14")
+        out_of_range = nvd_record("CVE-2", "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*", versionEndExcluding="3.0.0")
+        other_product = nvd_record("CVE-3", "cpe:2.3:a:php:php:*:*:*:*:*:*:*:*", versionEndExcluding="9.0")
+        exact = nvd_record("CVE-4", "cpe:2.3:a:openssl:openssl:3.0.11:*:*:*:*:*:*:*")
+        self.assertEqual(match.nvd_matches(in_range, "openssl", "openssl", "3.0.11"), ["3.0.14"])
+        self.assertIsNone(match.nvd_matches(out_of_range, "openssl", "openssl", "3.0.11"))
+        self.assertIsNone(match.nvd_matches(other_product, "openssl", "openssl", "3.0.11"))
+        self.assertEqual(match.nvd_matches(exact, "openssl", "openssl", "3.0.11"), [])
+
+    def test_native_components_are_matched_through_nvd(self):
+        records = [nvd_record("CVE-2024-1", "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*", versionEndExcluding="3.0.14"),
+                   nvd_record("CVE-2024-2", "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*", status="Rejected",
+                              versionEndExcluding="3.0.14"),
+                   nvd_record("CVE-2024-3", "cpe:2.3:a:php:php:*:*:*:*:*:*:*:*", versionEndExcluding="9")]
+        calls = []
+
+        def fetch(url, payload=None, headers=None):
+            calls.append((url, headers))
+            if url.startswith(match.NVD_API):
+                return {"totalResults": 3, "resultsPerPage": 3, "vulnerabilities": [{"cve": r} for r in records]}
+            return {"results": [{"vulns": []}]}
+
+        native = comp("native:openssl@3.0.11", "openssl", "3.0.11", ecosystem="native")
+        native["cpe"] = "cpe:2.3:a:openssl:openssl:3.0.11:*:*:*:*:*:*:*"
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        matcher = match.Matcher(fetch=fetch, cache_dir=tmp.name, nvd_api_key="k", sleep=lambda _s: None)
+        result = match.match_inventory(inv(native), matcher, enrich=False)
+        by_id = {a["id"]: a for a in result["advisories"]}
+        self.assertEqual(sorted(by_id), ["CVE-2024-1", "CVE-2024-2"])
+        self.assertEqual(by_id["CVE-2024-1"]["severity"]["score"], 9.8)
+        self.assertEqual(by_id["CVE-2024-1"]["affected"][0]["fixed"], ["3.0.14"])
+        self.assertEqual(by_id["CVE-2024-1"]["advisory_urls"], ["https://nvd.nist.gov/vuln/detail/CVE-2024-1"])
+        self.assertIsNotNone(by_id["CVE-2024-2"]["withdrawn"])
+        self.assertIn("NVD CPE", by_id["CVE-2024-1"]["notes"][0])
+        nvd_calls = [c for c in calls if c[0].startswith(match.NVD_API)]
+        self.assertEqual(nvd_calls[0][1], {"apiKey": "k"})
+        self.assertIn("virtualMatchString=cpe:2.3:a:openssl:openssl:3.0.11", nvd_calls[0][0])

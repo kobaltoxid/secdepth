@@ -73,11 +73,11 @@ class DraftTests(unittest.TestCase):
         self.assertFalse(f["review"]["needed"])
 
     def test_unverified_fix_and_no_fix(self):
-        report = self.build([adv("CVE-3", "npm:qs@6.7.0", ["6.7.3"]), adv("CVE-4", "npm:qs@6.7.0", [])],
+        report = self.build([adv("CVE-3", "npm:qs@6.7.0", ["7.0.0"]), adv("CVE-4", "npm:qs@6.7.0", [])],
                             [result("CVE-3", "npm:qs@6.7.0", "runtime", "conditional"),
                              result("CVE-4", "npm:qs@6.7.0", "runtime", "not-reachable")])
         f3, f4 = report["vulnerabilities"]
-        self.assertEqual((f3["feasibility"], f3["recommended_target_version"]), ("unknown", "qs 6.7.3"))
+        self.assertEqual((f3["feasibility"], f3["recommended_target_version"]), ("unknown", "qs 7.0.0"))
         self.assertIn("not verified", f3["recommendation"])
         self.assertEqual((f4["update_status"], f4["recommended_target_version"]), ("unknown", "unknown"))
 
@@ -101,3 +101,35 @@ class DraftTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ArtifactDraftTests(unittest.TestCase):
+    def test_artifact_findings_recommend_rebuild_and_need_review(self):
+        inv = data()
+        inv["target"]["kind"] = "artifact"
+        report = draft.build(inv, {"advisories": [adv("CVE-7", "npm:qs@6.7.0", ["6.7.3"])], "generated_at": "2026-11-19T00:00:00Z"},
+                             {"results": [result("CVE-7", "npm:qs@6.7.0", "runtime", "unknown")]})
+        f = report["vulnerabilities"][0]
+        self.assertEqual((f["feasibility"], f["recommended_target_version"]), ("feasible", "qs 6.7.3"))
+        self.assertIn("Rebuild the artifact", f["recommendation"])
+        self.assertEqual(f["review"], {"needed": True, "reason": "unknown reachability"})
+        self.assertTrue(report["report"]["title"].startswith("Artifact scan"))
+        self.assertEqual(report["report"]["target"]["mode"], "artifact-scan")
+
+
+class SemverTests(unittest.TestCase):
+    def test_compatible_lines(self):
+        self.assertTrue(draft.semver_compatible("1.5.4", "1.5.5"))
+        self.assertTrue(draft.semver_compatible("1.5.4", "1.9.0"))
+        self.assertFalse(draft.semver_compatible("1.5.4", "2.0.0"))
+        self.assertTrue(draft.semver_compatible("0.8.5", "0.8.7"))
+        self.assertFalse(draft.semver_compatible("0.8.5", "0.9.0"))
+        self.assertFalse(draft.semver_compatible("1.5.4", "1.5.4"))
+        self.assertFalse(draft.semver_compatible(None, "1.0.0"))
+
+    def test_unverified_compatible_fix_is_feasible(self):
+        report = draft.build(data(), {"advisories": [adv("CVE-8", "npm:qs@6.7.0", ["6.7.3"])], "generated_at": "2026-11-19T00:00:00Z"},
+                             {"results": [result("CVE-8", "npm:qs@6.7.0", "runtime", "conditional")]})
+        f = report["vulnerabilities"][0]
+        self.assertEqual((f["feasibility"], f["recommended_target_version"]), ("feasible", "qs 6.7.3"))
+        self.assertIn("semver-compatible", f["recommendation"])

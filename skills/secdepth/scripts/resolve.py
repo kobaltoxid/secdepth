@@ -19,24 +19,23 @@ import urllib.parse
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import inventory  # noqa: E402
+import resolvers  # noqa: E402
 
 VERSION = "0.1.0"
 NPM_LOCKFILES = ("npm-shrinkwrap.json", "package-lock.json")
-# Manifests whose resolvers are planned but not implemented yet.
+# Manifests without a resolver yet; they are reported, never skipped silently.
 PLANNED = {
     "yarn.lock": "yarn lockfile parsing is not implemented yet",
     "pnpm-lock.yaml": "pnpm lockfile parsing is not implemented yet",
-    "requirements.txt": "PyPI resolution is not implemented yet",
-    "pyproject.toml": "PyPI resolution is not implemented yet",
-    "poetry.lock": "PyPI resolution is not implemented yet",
-    "uv.lock": "PyPI resolution is not implemented yet",
-    "pom.xml": "Maven resolution is not implemented yet",
-    "build.gradle": "Gradle resolution is not implemented yet",
-    "build.gradle.kts": "Gradle resolution is not implemented yet",
-    "go.mod": "Go resolution is not implemented yet",
-    "Cargo.lock": "Cargo resolution is not implemented yet",
-    "packages.lock.json": "NuGet resolution is not implemented yet",
+    "pyproject.toml": "pyproject.toml without poetry.lock or uv.lock cannot be resolved without installing",
+    "build.gradle": "Gradle builds need dependency locking (gradle.lockfile) to be resolved",
+    "build.gradle.kts": "Gradle builds need dependency locking (gradle.lockfile) to be resolved",
 }
+RESOLVED_FILES = {name for name, _ in resolvers.RESOLVERS}
+# A lockfile makes these manifests redundant.
+SUPERSEDED = {"requirements.txt": ("poetry.lock", "uv.lock"), "pom.xml": ("gradle.lockfile",),
+              "pyproject.toml": ("poetry.lock", "uv.lock"), "build.gradle": ("gradle.lockfile",),
+              "build.gradle.kts": ("gradle.lockfile",)}
 SKIP_DIRS = {".git", "node_modules", "security-findings", "__pycache__", ".venv", "venv", "vendor", "dist", "build"}
 
 
@@ -50,7 +49,7 @@ def find_manifests(root):
         rel = path.relative_to(root)
         if any(part in SKIP_DIRS for part in rel.parts[:-1]) or not path.is_file():
             continue
-        if path.name in PLANNED or path.name == "package.json":
+        if path.name in PLANNED or path.name in RESOLVED_FILES or path.name == "package.json":
             yield rel
 
 
@@ -164,10 +163,18 @@ def resolve_project(project, generate=True):
     coverage = []
     manifests = list(find_manifests(project))
     for rel in manifests:
-        if rel.name in PLANNED:
+        nested = rel.parent != pathlib.Path(".")
+        superseded = [f for f in SUPERSEDED.get(rel.name, ()) if (project / rel.parent / f).is_file()]
+        if superseded:
+            coverage.append({"path": str(rel), "status": "skipped", "reason": "covered by %s" % superseded[0], "type": "manifest"})
+        elif nested and rel.name == "package.json":
+            # npm workspaces are covered by the root lockfile; other nested package.json files are examples or fixtures.
+            coverage.append({"path": str(rel), "status": "skipped", "reason": "nested package.json is not resolved separately", "type": "manifest"})
+        elif nested and rel.name in RESOLVED_FILES:
+            coverage.append({"path": str(rel), "status": "unidentified", "type": "manifest",
+                             "reason": "nested project; run resolve.py on %s to include it" % rel.parent})
+        elif rel.name in PLANNED:
             coverage.append({"path": str(rel), "status": "unidentified", "reason": PLANNED[rel.name], "type": "manifest"})
-        elif rel.name == "package.json" and rel.parent != pathlib.Path("."):
-            coverage.append({"path": str(rel), "status": "skipped", "reason": "nested package.json (workspace or example) is not resolved separately", "type": "manifest"})
 
     root_id, components = None, []
     if (project / "package.json").is_file():
@@ -189,6 +196,30 @@ def resolve_project(project, generate=True):
             coverage.append({"path": label, "status": "identified", "reason": "%d packages" % (len(components) - 1), "type": "lockfile"})
             for path, reason in skipped:
                 coverage.append({"path": "%s#%s" % (label, path), "status": "skipped", "reason": reason, "type": "lockfile-entry"})
+
+    for filename, parser in resolvers.RESOLVERS:
+        superseded = [f for f in SUPERSEDED.get(filename, ()) if (project / f).is_file()]
+        if not (project / filename).is_file() or superseded:
+            continue
+        try:
+            res = parser(project)
+        except Exception as exc:  # a broken manifest is a coverage gap, not a crash
+            coverage.append({"path": filename, "status": "unidentified", "reason": "could not parse: %s" % exc, "type": "manifest"})
+            continue
+        if root_id is None:
+            name = res.root_name or project.resolve().name
+            root_id = inventory.component_id(res.ecosystem, name, res.root_version)
+            components = [{"id": root_id, "name": name, "ecosystem": res.ecosystem, "version": res.root_version,
+                           "scope": "runtime", "root": True, "direct": None, "depends_on": [], "manifest": filename,
+                           "evidence": [{"identifier": filename, "location": filename, "detail": "project root", "confidence": "exact"}]}]
+        found, root_deps = resolvers.graph_components(res, root_id)
+        known = {c["id"] for c in components}
+        components.extend(c for c in found if c["id"] not in known)
+        root = next(c for c in components if c["id"] == root_id)
+        root["depends_on"] = sorted(set(root["depends_on"]) | set(root_deps))
+        coverage.append({"path": filename, "status": "identified", "reason": "%d packages" % len(found), "type": "lockfile"})
+        coverage.extend(res.gaps)
+        notes.extend(res.notes)
 
     if root_id is None:
         root_id = inventory.component_id("unknown", project.resolve().name, None)

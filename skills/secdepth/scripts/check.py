@@ -25,8 +25,15 @@ import inventory  # noqa: E402
 import match  # noqa: E402
 
 VERSION = "0.1.0"
-CODE_SUFFIXES = {".js", ".cjs", ".mjs", ".ts", ".cts", ".mts", ".jsx", ".tsx"}
-SKIP_DIRS = {".git", "node_modules", "security-findings", "__pycache__", "coverage"}
+CODE_SUFFIXES = {".js", ".cjs", ".mjs", ".ts", ".cts", ".mts", ".jsx", ".tsx", ".py", ".go", ".rs", ".cs", ".java",
+                 ".kt", ".scala"}
+SKIP_DIRS = {".git", "node_modules", "security-findings", "__pycache__", "coverage", "target", "vendor", ".venv", "venv"}
+# Without npm's "files" field, these are treated as not shipped.
+UNSHIPPED_DIRS = {"test", "tests", "testdata", "__tests__", "examples", "example", "benchmarks", "bench", "docs"}
+# PyPI distributions whose import name differs from the distribution name.
+PYTHON_MODULES = {"pyyaml": "yaml", "pillow": "PIL", "beautifulsoup4": "bs4", "scikit-learn": "sklearn",
+                  "python-dateutil": "dateutil", "opencv-python": "cv2", "protobuf": "google.protobuf",
+                  "pyjwt": "jwt", "pycryptodome": "Crypto", "msgpack-python": "msgpack", "attrs": "attr"}
 MAX_HITS = 20
 # Words that look like identifiers in advisory text but are not useful to search for.
 GENERIC = {"true", "false", "null", "undefined", "object", "string", "array", "function", "toString", "length",
@@ -54,7 +61,14 @@ def shipped_matcher(project):
                 text = rel.as_posix()
                 return any(text == p or text.startswith(p + "/") or fnmatch.fnmatch(text, p) for p in patterns)
             return shipped, 'package.json "files" publishes only: %s' % ", ".join(files)
-    return (lambda rel: True), "no package.json \"files\" field; every project file is treated as shipped"
+
+    def shipped_by_convention(rel):
+        name = rel.name
+        if any(part in UNSHIPPED_DIRS for part in rel.parts[:-1]):
+            return False
+        return not (name.endswith("_test.go") or name.startswith("test_") or name.endswith("_test.py"))
+    return shipped_by_convention, ("no package.json \"files\" field; test, example, benchmark and docs folders and "
+                                   "test files are treated as not shipped")
 
 
 def code_files(project):
@@ -64,7 +78,21 @@ def code_files(project):
             yield rel
 
 
-def import_pattern(name):
+def import_pattern(name, ecosystem="npm"):
+    """How code imports a package, per ecosystem. Maven and NuGet patterns are heuristics based on names."""
+    if ecosystem == "PyPI":
+        module = re.escape(PYTHON_MODULES.get(name.lower(), name.replace("-", "_")))
+        return re.compile(r"^\s*(?:import|from)\s+%s(?:\.|\s|$|,)" % module)
+    if ecosystem == "Go":
+        return re.compile(r'"%s(?:/[^"]*)?"' % re.escape(name))
+    if ecosystem == "crates.io":
+        crate = re.escape(name.replace("-", "_"))
+        return re.compile(r"\b(?:use|extern\s+crate)\s+%s\b|\b%s::" % (crate, crate))
+    if ecosystem == "NuGet":
+        return re.compile(r"^\s*(?:global\s+)?using\s+(?:static\s+)?%s\b" % re.escape(name))
+    if ecosystem == "Maven":
+        group = re.escape(name.split(":")[0])
+        return re.compile(r"^\s*import\s+(?:static\s+)?%s\." % group)
     quoted = re.escape(name)
     return re.compile(r"""(?:require\s*\(\s*|from\s+|import\s*\(\s*|import\s+)['"]%s(?:/[^'"]*)?['"]""" % quoted)
 
@@ -140,8 +168,84 @@ def direct_ancestors(data, component_id):
     return result
 
 
-def check(data, matches, project, fix_results=None):
+def check_artifact(data, matches, evidence=None):
+    """Compiled artifacts have no source to search: record where each component was found and leave
+    reachability `unknown` for review (or a decompile step) instead of guessing."""
+    components = {c["id"]: c for c in data["components"]}
+    results = []
+    for adv in matches["advisories"]:
+        for aff in adv["affected"]:
+            comp = components.get(aff["component_id"])
+            if comp is None:
+                continue
+            found = sorted({e["location"] for e in comp.get("evidence", [])})
+            confidence = min((e["confidence"] for e in comp.get("evidence", [])),
+                             key=["low", "medium", "high", "exact"].index, default="low")
+            code = (evidence or {}).get((adv["id"], comp["id"]))
+            if adv.get("withdrawn"):
+                verdict, facts = "not-reachable", ["Advisory withdrawn on %s." % adv["withdrawn"][:10]]
+            else:
+                verdict = code["proposed_reachability"] if code else "unknown"
+                facts = ["%s ships in the artifact at %s (identified with %s confidence)." % (
+                    comp["id"], ", ".join(found[:5]) + (" and %d more" % (len(found) - 5) if len(found) > 5 else ""), confidence)]
+                facts += code["facts"] if code else ["No source code is available and no code-level evidence was collected."]
+            results.append({
+                "advisory_id": adv["id"], "component_id": comp["id"], "scope": comp.get("scope"), "direct": comp.get("direct"),
+                "presence": "present", "proposed_reachability": verdict,
+                "confidence": {"unknown": "low", "conditional": "medium"}.get(verdict, "high"),
+                "evidence": facts, "call_sites": [], "function_hits": {}, "fixed_versions": aff.get("fixed", []),
+                "fix_check": None,
+            })
+    return {
+        "schema": "secdepth-checks", "schema_version": "1.0", "generated_at": now(),
+        "producer": {"name": "secdepth-check", "version": VERSION},
+        "project": data["target"]["path"], "shipped_files_rule": "compiled artifact: every identified component ships",
+        "code_files_scanned": 0, "shipped_code_files": 0, "results": results,
+    }
+
+
+def govulncheck_findings(project, runner=subprocess.run, which=shutil.which):
+    """Run govulncheck on a Go module. Returns ({osv_id: [finding]}, ran_ok, note).
+
+    A finding whose first trace frame names a function is symbol-level: the vulnerable code is called.
+    Not verified against a live govulncheck in this repository's tests; the JSON shape follows its documentation.
+    """
+    if not (project / "go.mod").is_file():
+        return {}, False, None
+    exe = which("govulncheck")
+    if not exe:
+        return {}, False, "govulncheck is not installed; Go reachability is based on imports only"
+    proc = runner([exe, "-format", "json", "./..."], cwd=str(project), capture_output=True, text=True, timeout=1800)
+    findings, decoder, text, pos = {}, json.JSONDecoder(), proc.stdout or "", 0
+    while pos < len(text):
+        while pos < len(text) and text[pos].isspace():
+            pos += 1
+        if pos >= len(text):
+            break
+        try:
+            obj, pos = decoder.raw_decode(text, pos)
+        except ValueError:
+            return {}, False, "govulncheck output could not be parsed"
+        finding = obj.get("finding") if isinstance(obj, dict) else None
+        if not finding:
+            continue
+        trace = finding.get("trace") or [{}]
+        vulnerable, entry = trace[0], trace[-1]
+        position = entry.get("position") or {}
+        findings.setdefault(finding.get("osv"), []).append({
+            "module": vulnerable.get("module"), "package": vulnerable.get("package"), "function": vulnerable.get("function"),
+            "file": position.get("filename"), "line": position.get("line"),
+            "level": "symbol" if vulnerable.get("function") else "package" if vulnerable.get("package") else "module"})
+    if proc.returncode not in (0, 3) and not findings:
+        return {}, False, "govulncheck failed: " + ((proc.stderr or "").strip().splitlines() or ["exit %d" % proc.returncode])[-1]
+    return findings, True, None
+
+
+def check(data, matches, project, fix_results=None, govulncheck=govulncheck_findings, evidence=None):
+    if data["target"]["kind"] == "artifact":
+        return check_artifact(data, matches, evidence)
     project = pathlib.Path(project)
+    go_findings, go_ran, go_note = govulncheck(project)
     components = {c["id"]: c for c in data["components"]}
     root_id = data["root_component_id"]
     shipped, shipped_reason = shipped_matcher(project)
@@ -149,12 +253,12 @@ def check(data, matches, project, fix_results=None):
     shipped_files = [f for f in files if shipped(f)]
     import_cache = {}
 
-    def imports_of(name):
-        if name not in import_cache:
-            pattern = import_pattern(name)
-            import_cache[name] = {"shipped": search(project, shipped_files, pattern),
-                                  "unshipped": search(project, [f for f in files if not shipped(f)], pattern)}
-        return import_cache[name]
+    def imports_of(name, ecosystem="npm"):
+        if (name, ecosystem) not in import_cache:
+            pattern = import_pattern(name, ecosystem)
+            import_cache[(name, ecosystem)] = {"shipped": search(project, shipped_files, pattern),
+                                               "unshipped": search(project, [f for f in files if not shipped(f)], pattern)}
+        return import_cache[(name, ecosystem)]
 
     results = []
     for adv in matches["advisories"]:
@@ -176,7 +280,7 @@ def check(data, matches, project, fix_results=None):
                 evidence.append("%s is a %s-only dependency; it is not installed for consumers of the published package."
                                 % (comp["id"], comp["scope"]))
                 for parent, path in direct_ancestors(data, comp["id"]).items():
-                    hits = imports_of(components[parent]["name"])
+                    hits = imports_of(components[parent]["name"], components[parent]["ecosystem"])
                     used = hits["shipped"] + hits["unshipped"]
                     evidence.append("Pulled in by %s via %s; %s." % (
                         components[parent]["name"], " > ".join(path),
@@ -186,7 +290,7 @@ def check(data, matches, project, fix_results=None):
                 ancestors = {p: path for p, path in direct_ancestors(data, comp["id"]).items()
                              if components[p].get("scope") not in {"dev", "build"}}
                 for parent, path in sorted(ancestors.items()):
-                    hits = imports_of(components[parent]["name"])
+                    hits = imports_of(components[parent]["name"], components[parent]["ecosystem"])
                     call_sites.extend(dict(h, via=components[parent]["name"]) for h in hits["shipped"])
                     if parent != comp["id"]:
                         evidence.append("Transitive via %s." % " > ".join(path))
@@ -203,6 +307,19 @@ def check(data, matches, project, fix_results=None):
                         token, ", ".join("%s:%d" % (h["file"], h["line"]) for h in hits[:5])))
                 else:
                     evidence.append("Advisory names `%s`; no call or definition found in shipped code." % token)
+            if go_ran and comp.get("ecosystem") == "Go" and not adv.get("withdrawn") and comp.get("scope") not in {"dev", "build"}:
+                ids = {adv["id"], *adv.get("aliases", [])}
+                hits = [f for i in ids for f in go_findings.get(i, [])]
+                symbol = [f for f in hits if f["level"] == "symbol"]
+                if symbol:
+                    verdict, confidence = "reachable", "high"
+                    evidence.extend("govulncheck: %s is called (entry at %s:%s)." % (f["function"], f["file"], f["line"])
+                                    for f in symbol[:5])
+                else:
+                    verdict, confidence = "not-reachable", "medium"
+                    evidence.append("govulncheck call-graph analysis found %s." % (
+                        "the vulnerable package imported but its vulnerable functions never called" if hits
+                        else "no call path to this vulnerability"))
             fix = (fix_results or {}).get((adv["id"], comp["id"]))
             results.append({
                 "advisory_id": adv["id"], "component_id": comp["id"], "scope": comp.get("scope"),
@@ -216,6 +333,7 @@ def check(data, matches, project, fix_results=None):
         "producer": {"name": "secdepth-check", "version": VERSION},
         "project": str(project), "shipped_files_rule": shipped_reason,
         "code_files_scanned": len(files), "shipped_code_files": len(shipped_files),
+        "govulncheck": "ran" if go_ran else go_note,
         "results": results,
     }
 
@@ -275,10 +393,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("inventory")
     parser.add_argument("matches")
-    parser.add_argument("project")
+    parser.add_argument("project", nargs="?", help="source directory (not needed for artifact inventories)")
     parser.add_argument("--output", help="checks path (default: next to the matches as checks.json)")
     parser.add_argument("--fix-check", action="store_true", help="resolve upgrades with npm and re-match (network)")
     parser.add_argument("--cache-dir", default=None, help="advisory cache for --fix-check (default: match.py's)")
+    parser.add_argument("--evidence", help="code-level evidence for an artifact (binary_sca evidence output)")
     args = parser.parse_args(argv)
     try:
         data = inventory.load(args.inventory)
@@ -286,11 +405,20 @@ def main(argv=None):
     except (OSError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 1
+    is_artifact = data["target"]["kind"] == "artifact"
+    if not is_artifact and not args.project:
+        parser.error("the project directory is required for source inventories")
     fixes, note = {}, None
-    if args.fix_check:
+    if args.fix_check and is_artifact:
+        note = "--fix-check applies to source projects only; ignored for an artifact inventory"
+    elif args.fix_check:
         cache = args.cache_dir or str(pathlib.Path.home() / ".cache" / "secdepth")
         fixes, note = fix_check(data, matches, args.project, match.Matcher(cache_dir=cache))
-    result = check(data, matches, args.project, fixes)
+    code_evidence = None
+    if args.evidence:
+        rows = json.loads(pathlib.Path(args.evidence).read_text(encoding="utf-8")).get("results", [])
+        code_evidence = {(r["advisory_id"], r["component_id"]): r for r in rows}
+    result = check(data, matches, args.project, fixes, evidence=code_evidence)
     if note:
         result["fix_check_note"] = note
     out = pathlib.Path(args.output) if args.output else pathlib.Path(args.matches).with_name("checks.json")

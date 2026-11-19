@@ -33,7 +33,7 @@ The JSON is authoritative. HTML must remain usable without a network connection 
 
 ## Deterministic pipeline
 
-Run these from the target project's root. Each writes into `security-findings/` and needs only Python 3; `resolve.py` and `--fix-check` also use npm when the project has no lockfile.
+Run these from the target project's root. Each writes into `security-findings/` and needs only Python 3. `resolve.py` reads npm, Cargo, Poetry, uv, pip, Go, NuGet, Gradle and Maven manifests; for npm without a lockfile it and `--fix-check` use npm. Set `NVD_API_KEY` to speed up NVD lookups for native components.
 
 ```sh
 python3 <skill-dir>/scripts/resolve.py .                         # inventory.json: full dependency tree and coverage
@@ -45,7 +45,7 @@ python3 <skill-dir>/scripts/render_report.py security-findings/draft.json
 
 - `resolve.py` lists manifests it cannot resolve yet in the inventory's coverage ledger. Report those gaps; do not treat a partial inventory as a clean scan. The format is described in [references/inventory-schema.json](references/inventory-schema.json).
 - `match.py` caches advisories in `~/.cache/secdepth`. Use `--offline` when the network is unavailable and say so in the summary.
-- `check.py` proposes `not-reachable` or `conditional` for every advisory and component. It never claims `reachable` on its own.
+- `check.py` proposes `not-reachable` or `conditional` for every advisory and component, and `unknown` for compiled artifacts. It claims `reachable` only from govulncheck's call graph for Go modules, when govulncheck is installed.
 - `draft.py` marks findings that need your review with `review.needed`.
 
 If a step fails, report the error and the step; do not replace the step with manual research unless the caller asks.

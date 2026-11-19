@@ -15,7 +15,9 @@ import os
 import pathlib
 import re
 import sys
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -26,6 +28,10 @@ OSV_BATCH = "https://api.osv.dev/v1/querybatch"
 OSV_VULN = "https://api.osv.dev/v1/vulns/"
 KEV_FEED = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 EPSS_API = "https://api.first.org/data/v1/epss?cve="
+NVD_API = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+NVD_PAGE = 2000
+# NVD allows 5 requests per 30 s without an API key and 50 with one.
+NVD_DELAY = {False: 6.5, True: 0.7}
 BATCH_SIZE = 500
 OSV_ECOSYSTEMS = {
     "npm", "PyPI", "Maven", "Go", "crates.io", "NuGet", "RubyGems", "Packagist", "Hex", "Pub", "SwiftURL",
@@ -38,11 +44,11 @@ def now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def http_fetch(url, payload=None, timeout=60):
+def http_fetch(url, payload=None, timeout=60, headers=None):
     """Default network access; tests replace it."""
     data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json",
-                                                          "User-Agent": "secdepth/" + VERSION})
+    req = urllib.request.Request(url, data=data, headers=dict({"Content-Type": "application/json",
+                                                               "User-Agent": "secdepth/" + VERSION}, **(headers or {})))
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.load(resp)
 
@@ -137,9 +143,11 @@ def ranges_text(affected):
 # --- matching -------------------------------------------------------------------------------------
 
 class Matcher:
-    def __init__(self, fetch=http_fetch, cache_dir=None, offline=False):
+    def __init__(self, fetch=http_fetch, cache_dir=None, offline=False, nvd_api_key=None, sleep=time.sleep):
         self.fetch = fetch
         self.offline = offline
+        self.nvd_api_key = nvd_api_key
+        self.sleep = sleep
         self.cache = pathlib.Path(cache_dir) if cache_dir else None
         self.sources = []
 
@@ -165,7 +173,7 @@ class Matcher:
             while pending:
                 queries = []
                 for comp, token in pending:
-                    q = {"package": {"name": comp["name"], "ecosystem": comp["ecosystem"]}, "version": comp["version"]}
+                    q = {"package": {"name": comp["name"], "ecosystem": osv_ecosystem(comp)}, "version": comp["version"]}
                     if token:
                         q["page_token"] = token
                     queries.append(q)
@@ -190,6 +198,30 @@ class Matcher:
         data = self.fetch(OSV_VULN + osv_id)
         self._store(name, data)
         return data
+
+    def nvd(self, cpe_name):
+        """All CVE records whose configurations mention this CPE (filtered later by nvd_matches)."""
+        name = "nvd/%s.json" % re.sub(r"[^A-Za-z0-9._-]+", "_", cpe_name)
+        cached = self._cached(name)
+        if cached is not None or self.offline:
+            if cached is None:
+                raise LookupError("NVD results for %s are not in the offline cache" % cpe_name)
+            return cached
+        records, start = [], 0
+        headers = {"apiKey": self.nvd_api_key} if self.nvd_api_key else None
+        while True:
+            url = "%s?virtualMatchString=%s&resultsPerPage=%d&startIndex=%d" % (
+                NVD_API, urllib.parse.quote(cpe_name, safe=":*"), NVD_PAGE, start)
+            page = self.fetch(url, None, headers=headers) if headers else self.fetch(url)
+            records.extend(v["cve"] for v in page.get("vulnerabilities", []))
+            start += page.get("resultsPerPage") or NVD_PAGE
+            self.sleep(NVD_DELAY[bool(self.nvd_api_key)])
+            if start >= page.get("totalResults", 0):
+                break
+        self._store(name, records)
+        if not any(s["name"] == "NVD CVE API 2.0" for s in self.sources):
+            self.sources.append({"name": "NVD CVE API 2.0", "url": NVD_API, "accessed_at": now()})
+        return records
 
     def kev(self):
         cached = self._cached("kev.json")
@@ -219,6 +251,85 @@ class Matcher:
                 result[row["cve"]] = {"score": float(row["epss"]), "percentile": float(row["percentile"]), "date": row.get("date")}
         self.sources.append({"name": "FIRST EPSS", "url": EPSS_API.split("?")[0], "accessed_at": now()})
         return result
+
+
+def osv_ecosystem(comp):
+    """OSV names distribution ecosystems with their release, for example Debian:12 or Alpine:v3.19."""
+    distro = comp.get("distro") or {}
+    release = distro.get("release")
+    eco = comp["ecosystem"]
+    if not release:
+        return eco
+    if eco == "Ubuntu":
+        # Unverified against OSV's full list: LTS releases carry an ':LTS' suffix.
+        year, _, month = release.partition(".")
+        return "Ubuntu:%s:LTS" % release if month == "04" and year.isdigit() and int(year) % 2 == 0 else "Ubuntu:" + release
+    if eco in {"Debian", "Alpine"}:
+        return "%s:%s" % (eco, release)
+    return eco
+
+
+def _in_range(version, entry):
+    key = version_key(version)
+    if key is None:
+        return False
+    checks = (("versionStartIncluding", lambda k, b: k >= b), ("versionStartExcluding", lambda k, b: k > b),
+              ("versionEndIncluding", lambda k, b: k <= b), ("versionEndExcluding", lambda k, b: k < b))
+    for field, ok in checks:
+        bound = entry.get(field)
+        if bound is not None:
+            bound_key = version_key(bound)
+            if bound_key is None or not ok(key, bound_key):
+                return False
+    return True
+
+
+def nvd_matches(record, vendor, product, version):
+    """Fixed versions if a vulnerable configuration entry names this vendor/product and contains the version,
+    else None. NVD also returns CVEs that only mention the product as a platform; those are dropped."""
+    matched, fixed = False, set()
+    for config in record.get("configurations") or []:
+        for node in config.get("nodes") or []:
+            for entry in node.get("cpeMatch") or []:
+                parts = entry.get("criteria", "").split(":")
+                if not entry.get("vulnerable") or len(parts) < 6 or parts[3:5] != [vendor, product]:
+                    continue
+                if parts[5] not in ("*", "-"):
+                    hit = version_key(parts[5]) == version_key(version)
+                else:
+                    hit = _in_range(version, entry)
+                if hit:
+                    matched = True
+                    if entry.get("versionEndExcluding"):
+                        fixed.add(entry["versionEndExcluding"])
+    return sorted(fixed, key=lambda f: version_key(f) or (0,)) if matched else None
+
+
+def nvd_advisory(record, component_id, cpe_name, fixed):
+    metric = None
+    for key in ("cvssMetricV31", "cvssMetricV30"):
+        candidates = (record.get("metrics") or {}).get(key) or []
+        metric = next((m for m in candidates if m.get("type") == "Primary"), candidates[0] if candidates else None)
+        if metric:
+            break
+    vector = (metric or {}).get("cvssData", {}).get("vectorString")
+    score = cvss3_score(vector)
+    cwes = sorted({d["value"] for w in record.get("weaknesses") or [] for d in w.get("description") or []
+                   if d.get("value", "").startswith("CWE-")})
+    description = next((d["value"] for d in record.get("descriptions") or [] if d.get("lang") == "en"), "")
+    return {
+        "id": record["id"], "aliases": [], "summary": description[:140], "details": description,
+        "published": record.get("published"), "modified": record.get("lastModified"),
+        "withdrawn": record.get("lastModified") if record.get("vulnStatus") == "Rejected" else None,
+        "severity": {"score": score, "vector": vector, "label": severity_label(score), "cwe": ", ".join(cwes) or None},
+        "references": sorted({r["url"] for r in record.get("references") or [] if r.get("url")})[:20],
+        "advisory_urls": ["https://nvd.nist.gov/vuln/detail/" + record["id"]],
+        "affected": [{"component_id": component_id, "osv_ids": [], "ranges": ["NVD configuration for %s" % cpe_name],
+                      "fixed": fixed}],
+        "kev": None, "epss": None,
+        "notes": ["Matched through NVD CPE configuration data, which is less precise than package-level advisories; "
+                  "confirm the affected version range before reporting."],
+    }
 
 
 def canonical_id(ids):
@@ -251,15 +362,17 @@ def severity_of(records):
 
 def match_inventory(data, matcher, enrich=True):
     components = data["components"]
-    queryable, unqueried = [], []
+    queryable, unqueried, cpe_queryable = [], [], []
     for comp in components:
         if comp.get("root"):
             continue
         if not comp.get("version"):
             unqueried.append({"component_id": comp["id"], "reason": "version unknown" + (
                 " (candidate range %s)" % comp["version_range"] if comp.get("version_range") else "")})
+        elif comp.get("ecosystem") not in OSV_ECOSYSTEMS and comp.get("cpe"):
+            cpe_queryable.append(comp)
         elif comp.get("ecosystem") not in OSV_ECOSYSTEMS:
-            unqueried.append({"component_id": comp["id"], "reason": "no OSV ecosystem; NVD CPE lookup is not implemented yet"})
+            unqueried.append({"component_id": comp["id"], "reason": "no OSV ecosystem and no CPE to look up in NVD"})
         else:
             queryable.append(comp)
     # The root is queried too when it is itself a published package.
@@ -333,12 +446,32 @@ def match_inventory(data, matcher, enrich=True):
             "withdrawn": max((r.get("withdrawn") for r in recs if r.get("withdrawn")), default=None),
             "severity": severity_of(recs),
             "references": sorted({ref["url"] for r in recs for ref in r.get("references") or [] if ref.get("url")}),
-            "osv_urls": ["https://osv.dev/vulnerability/" + m for m in sorted(members)],
+            "advisory_urls": ["https://osv.dev/vulnerability/" + m for m in sorted(members)],
             "affected": sorted(affected.values(), key=lambda e: e["component_id"]),
             "kev": None,
             "epss": None,
             "notes": notes,
         })
+
+    by_cve = {a["id"]: a for a in advisories}
+    for comp in cpe_queryable:
+        parts = comp["cpe"].split(":")
+        cpe_name = ":".join(parts[:5] + [comp["version"]] + parts[6:])
+        try:
+            records_nvd = matcher.nvd(cpe_name)
+        except (LookupError, urllib.error.URLError, OSError, ValueError) as exc:
+            failures.append({"advisory": "NVD " + cpe_name, "reason": str(exc)})
+            continue
+        for record in records_nvd:
+            fixed = nvd_matches(record, parts[3], parts[4], comp["version"])
+            if fixed is None:
+                continue
+            adv = nvd_advisory(record, comp["id"], cpe_name, fixed)
+            if adv["id"] in by_cve:
+                by_cve[adv["id"]]["affected"].append(adv["affected"][0])
+            else:
+                by_cve[adv["id"]] = adv
+                advisories.append(adv)
 
     if enrich:
         kev = matcher.kev()
@@ -362,7 +495,7 @@ def match_inventory(data, matcher, enrich=True):
         "root_component_id": data["root_component_id"],
         "data_sources": matcher.sources,
         "offline": matcher.offline,
-        "components_queried": len(queryable),
+        "components_queried": len(queryable) + len(cpe_queryable),
         "unqueried": unqueried,
         "lookup_failures": failures,
         "advisories": advisories,
@@ -382,7 +515,7 @@ def main(argv=None):
     except (OSError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 1
-    matcher = Matcher(cache_dir=args.cache_dir, offline=args.offline)
+    matcher = Matcher(cache_dir=args.cache_dir, offline=args.offline, nvd_api_key=os.environ.get("NVD_API_KEY"))
     try:
         result = match_inventory(data, matcher, enrich=not args.no_enrich)
     except (urllib.error.URLError, OSError) as exc:

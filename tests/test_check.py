@@ -115,3 +115,107 @@ class CheckTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ArtifactCheckTests(unittest.TestCase):
+    def test_artifact_inventory_needs_no_source(self):
+        data = inventory.new_inventory("t", "0", "artifact", "app.tar", "artifact:app.tar@unknown")
+        data["components"] = [comp("artifact:app.tar@unknown", "app.tar", root=True, depends_on=["npm:qs@6.7.0"]),
+                              comp("npm:qs@6.7.0", "qs")]
+        data["components"][1]["evidence"] = [{"identifier": "npm-package-json", "location": "app.tar!/node_modules/qs/package.json",
+                                              "confidence": "exact"}]
+        result = check.check(data, {"advisories": [advisory("CVE-9", "npm:qs@6.7.0"),
+                                                   advisory("CVE-10", "npm:qs@6.7.0", withdrawn="2025-01-01T00:00:00Z")]}, None)
+        by_id = {r["advisory_id"]: r for r in result["results"]}
+        self.assertEqual(by_id["CVE-9"]["proposed_reachability"], "unknown")
+        self.assertIn("app.tar!/node_modules/qs/package.json", by_id["CVE-9"]["evidence"][0])
+        self.assertEqual(by_id["CVE-10"]["proposed_reachability"], "not-reachable")
+
+
+class EcosystemPatternTests(unittest.TestCase):
+    def test_import_patterns(self):
+        cases = [
+            ("PyPI", "pyyaml", "import yaml", "import yamlx"),
+            ("PyPI", "jinja2", "from jinja2 import Template", "from jinja2x import t"),
+            ("Go", "golang.org/x/net", '\t"golang.org/x/net/http2"', '"golang.org/x/network"'),
+            ("crates.io", "serde-json", "use serde_json::Value;", "use serde_jsonx::V;"),
+            ("NuGet", "Newtonsoft.Json", "using Newtonsoft.Json;", "using Newtonsoft.JsonX;"),
+            ("Maven", "org.apache.logging.log4j:log4j-core", "import org.apache.logging.log4j.LogManager;",
+             "import org.apache.logging.other.X;"),
+        ]
+        for eco, name, hit, miss in cases:
+            p = check.import_pattern(name, eco)
+            self.assertTrue(p.search(hit), (eco, hit))
+            self.assertFalse(p.search(miss), (eco, miss))
+
+    def test_conventional_shipped_files(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        shipped, reason = check.shipped_matcher(pathlib.Path(tmp.name))
+        self.assertTrue(shipped(pathlib.Path("pkg/server.go")))
+        self.assertFalse(shipped(pathlib.Path("pkg/server_test.go")))
+        self.assertFalse(shipped(pathlib.Path("tests/test_app.py")))
+        self.assertIn("treated as not shipped", reason)
+
+
+class GovulncheckTests(unittest.TestCase):
+    STREAM = "\n".join(json.dumps(x) for x in [
+        {"config": {"scanner_name": "govulncheck"}},
+        {"finding": {"osv": "GO-2022-0001", "trace": [
+            {"module": "golang.org/x/net", "package": "golang.org/x/net/http2", "function": "Server.ServeConn"},
+            {"module": "example.com/svc", "function": "main", "position": {"filename": "main.go", "line": 12}}]}},
+        {"finding": {"osv": "GO-2022-0002", "trace": [{"module": "golang.org/x/text", "package": "golang.org/x/text/language"}]}},
+    ])
+
+    def run_gv(self, project, which=lambda _n: "/usr/bin/govulncheck", stdout=STREAM, code=3):
+        class Proc:
+            returncode, stderr = code, ""
+        Proc.stdout = stdout
+        return check.govulncheck_findings(project, runner=lambda *a, **k: Proc, which=which)
+
+    def test_parser_and_levels(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        project = pathlib.Path(tmp.name)
+        self.assertEqual(self.run_gv(project), ({}, False, None))  # not a Go module
+        (project / "go.mod").write_text("module example.com/svc\n")
+        findings, ran, note = self.run_gv(project)
+        self.assertTrue(ran)
+        self.assertEqual(findings["GO-2022-0001"][0]["level"], "symbol")
+        self.assertEqual((findings["GO-2022-0001"][0]["file"], findings["GO-2022-0001"][0]["line"]), ("main.go", 12))
+        self.assertEqual(findings["GO-2022-0002"][0]["level"], "package")
+        self.assertIn("not installed", self.run_gv(project, which=lambda _n: None)[2])
+
+    def test_verdicts_from_govulncheck(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        project = pathlib.Path(tmp.name)
+        (project / "main.go").write_text('package main\nimport "golang.org/x/net/http2"\n')
+        data = inventory.new_inventory("t", "0", "source", ".", "Go:example.com/svc@unknown")
+        go = lambda cid, name: dict(comp(cid, name, direct=True), ecosystem="Go")
+        data["components"] = [dict(comp("Go:example.com/svc@unknown", "example.com/svc", root=True,
+                                        depends_on=["Go:golang.org/x/net@0.1.0", "Go:golang.org/x/text@0.3.0"]), ecosystem="Go"),
+                              go("Go:golang.org/x/net@0.1.0", "golang.org/x/net"), go("Go:golang.org/x/text@0.3.0", "golang.org/x/text")]
+        advisories = [dict(advisory("CVE-A", "Go:golang.org/x/net@0.1.0"), aliases=["GO-2022-0001"]),
+                      dict(advisory("CVE-B", "Go:golang.org/x/text@0.3.0"), aliases=["GO-2022-0002"])]
+        findings = {"GO-2022-0001": [{"level": "symbol", "function": "Server.ServeConn", "file": "main.go", "line": 12}],
+                    "GO-2022-0002": [{"level": "package", "function": None, "file": None, "line": None}]}
+        result = check.check(data, {"advisories": advisories}, project, govulncheck=lambda _p: (findings, True, None))
+        by_id = {r["advisory_id"]: r for r in result["results"]}
+        self.assertEqual((by_id["CVE-A"]["proposed_reachability"], by_id["CVE-A"]["confidence"]), ("reachable", "high"))
+        self.assertIn("Server.ServeConn is called", " ".join(by_id["CVE-A"]["evidence"]))
+        self.assertEqual(by_id["CVE-B"]["proposed_reachability"], "not-reachable")
+        self.assertEqual(result["govulncheck"], "ran")
+
+
+class ArtifactEvidenceTests(unittest.TestCase):
+    def test_code_evidence_updates_verdict(self):
+        data = inventory.new_inventory("t", "0", "artifact", "app.tar", "artifact:app.tar@unknown")
+        data["components"] = [comp("artifact:app.tar@unknown", "app.tar", root=True, depends_on=["npm:qs@6.7.0"]),
+                              comp("npm:qs@6.7.0", "qs")]
+        code = {("CVE-9", "npm:qs@6.7.0"): {"proposed_reachability": "conditional",
+                                            "facts": ["Class Parser is present at app.tar!/lib/qs.jar!/Parser.class."]}}
+        result = check.check(data, {"advisories": [advisory("CVE-9", "npm:qs@6.7.0")]}, None, evidence=code)
+        row = result["results"][0]
+        self.assertEqual((row["proposed_reachability"], row["confidence"]), ("conditional", "medium"))
+        self.assertIn("Class Parser is present", " ".join(row["evidence"]))
