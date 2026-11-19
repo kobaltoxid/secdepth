@@ -397,7 +397,7 @@ def main(argv=None):
     parser.add_argument("--output", help="checks path (default: next to the matches as checks.json)")
     parser.add_argument("--fix-check", action="store_true", help="resolve upgrades with npm and re-match (network)")
     parser.add_argument("--cache-dir", default=None, help="advisory cache for --fix-check (default: match.py's)")
-    parser.add_argument("--evidence", help="code-level evidence for an artifact (binary_sca evidence output)")
+    parser.add_argument("--evidence", help="code-level evidence for an artifact (secpeel evidence output)")
     args = parser.parse_args(argv)
     try:
         data = inventory.load(args.inventory)

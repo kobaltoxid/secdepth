@@ -37,11 +37,11 @@ Detection is deterministic. Scripts resolve the dependency tree, match every com
 
 Components without a package identity, such as native libraries, are matched through NVD; set `NVD_API_KEY` to raise NVD's rate limit. For air-gapped use, download OSV's exports with `skills/secdepth/scripts/osvdata.py` and pass `--osv-data` to `match.py`.
 
-To scan a compiled artifact instead of source code, create the inventory with [binary-sca](https://github.com/kobaltoxid/binary-sca) and run the same matching, check and draft steps on it.
+To scan a compiled artifact instead of source code, create the inventory with [secpeel](https://github.com/kobaltoxid/secpeel) and run the same matching, check and draft steps on it.
 
 Include your remediation deadlines or priority rules if they should guide the report. See the [use guide](docs/use-secdepth.md) and the [inventory format](docs/inventory-format.md).
 
-![A source project goes to Resolve and a binary-sca inventory goes straight to Match. Match, Check and Draft run as deterministic scripts, and only the flagged findings go to model review, which writes the JSON and HTML reports.](docs/diagrams/secdepth-flow.svg)
+![A source project goes to Resolve and a secpeel inventory goes straight to Match. Match, Check and Draft run as deterministic scripts, and only the flagged findings go to model review, which writes the JSON and HTML reports.](docs/diagrams/secdepth-flow.svg)
 
 Figure 1. Scripts build the draft; the model reviews only the findings they flag. [D2 source](docs/diagrams/secdepth-flow.d2)
 

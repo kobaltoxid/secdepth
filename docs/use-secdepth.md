@@ -24,7 +24,7 @@ Use this procedure to scan a project for published vulnerabilities, or to invest
    From an installed skill, use its `scripts/` path instead. A scan covers direct, transitive, development, and build dependencies. When a lockfile is missing, `resolve.py` resolves one in a temporary copy so the target stays unchanged. You can run these commands yourself without an agent.
 3. Let the agent review the findings marked for review, mostly those with conditional reachability. It reads the cited call sites, sets the final verdict with evidence, and renders the report again.
 
-   For a compiled artifact, create the inventory with binary-sca instead of `resolve.py`, then run `match.py`, `check.py` without a project directory, `draft.py` and `render_report.py` on it. Pass `--evidence` to `check.py` with the output of `binary_sca evidence` to add class and symbol evidence.
+   For a compiled artifact, create the inventory with secpeel instead of `resolve.py`, then run `match.py`, `check.py` without a project directory, `draft.py` and `render_report.py` on it. Pass `--evidence` to `check.py` with the output of `secpeel evidence` to add class and symbol evidence.
 4. Review the authoritative `report.json` and the searchable `report.html`. The HTML shows affected findings without a deployable fix first, affected findings with a feasible released fix next, and findings with no confirmed local exposure or incomplete assessment last.
 
 ## Verify
