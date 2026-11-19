@@ -41,9 +41,9 @@ To scan a compiled artifact instead of source code, create the inventory with [b
 
 Include your remediation deadlines or priority rules if they should guide the report. See the [use guide](docs/use-secdepth.md) and the [inventory format](docs/inventory-format.md).
 
-![An analyst requests a CVE check or a full scan from Secdepth, which produces JSON and HTML reports.](docs/diagrams/secdepth-flow.svg)
+![A source project goes to Resolve and a binary-sca inventory goes straight to Match. Match, Check and Draft run as deterministic scripts, and only the flagged findings go to model review, which writes the JSON and HTML reports.](docs/diagrams/secdepth-flow.svg)
 
-Figure 1. The agent drafts findings with citations, then the renderer writes both reports. [D2 source](docs/diagrams/secdepth-flow.d2)
+Figure 1. Scripts build the draft; the model reviews only the findings they flag. [D2 source](docs/diagrams/secdepth-flow.d2)
 
 By default, the reports go in `security-findings/`. Use `report.json` as the authoritative record and open `report.html` to search findings, inspect dependency paths, and follow source links. See the [report output reference](docs/report-output.md).
 

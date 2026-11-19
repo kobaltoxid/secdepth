@@ -7,15 +7,37 @@ vars: {
   }
 }
 
-analyst: Analyst {
-  shape: person
+classes: {
+  boundary: {
+    style: {
+      fill: transparent
+    }
+  }
 }
 
-secdepth: Secdepth
-
-reports: "JSON and HTML\nreports" {
+project: Source project {
   shape: document
 }
 
-analyst -> secdepth: CVE or full scan
-secdepth -> reports: findings
+artifact: "binary-sca\ninventory" {
+  shape: document
+}
+
+scripts: "Deterministic scripts" {
+  class: boundary
+  resolve: Resolve
+  match: Match
+  check: Check
+  draft: Draft
+  resolve -> match
+  match -> check
+  check -> draft
+}
+
+reports: "Model review\nand reports" {
+  shape: document
+}
+
+project -> scripts.resolve
+artifact -> scripts.match
+scripts.draft -> reports: flagged findings
