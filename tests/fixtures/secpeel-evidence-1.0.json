@@ -1,0 +1,21 @@
+{
+  "schema": "secpeel-evidence",
+  "schema_version": "1.0",
+  "results": [
+    {
+      "advisory_id": "CVE-2021-44228",
+      "component_id": "Maven:org.apache.logging.log4j:log4j-core@2.14.1",
+      "named": [
+        "JndiLookup"
+      ],
+      "present": [
+        "JndiLookup"
+      ],
+      "facts": [
+        "Class JndiLookup is present at log4j-core-2.14.1.jar!/org/apache/logging/log4j/core/lookup/JndiLookup.class.",
+        "Referenced by 0 class(es) outside the component."
+      ],
+      "proposed_reachability": "conditional"
+    }
+  ]
+}

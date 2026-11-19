@@ -168,6 +168,41 @@ def direct_ancestors(data, component_id):
     return result
 
 
+EVIDENCE_SCHEMA, EVIDENCE_MAJOR = "secpeel-evidence", "1"
+VERDICTS = {"reachable", "conditional", "unknown", "not-reachable"}
+
+
+def validate_evidence(data, source="evidence file"):
+    """Problems with a secpeel evidence file (schema secpeel-evidence 1.x); empty when it is usable.
+
+    Any 1.x file is accepted: a minor version may only add optional fields. Extra fields are ignored.
+    """
+    if not isinstance(data, dict):
+        return ["%s: top level must be an object" % source]
+    errors = []
+    if data.get("schema") != EVIDENCE_SCHEMA:
+        errors.append("%s: schema is %r, expected %r" % (source, data.get("schema"), EVIDENCE_SCHEMA))
+    version = str(data.get("schema_version", ""))
+    if version.split(".")[0] != EVIDENCE_MAJOR:
+        errors.append("%s: schema_version %r is not supported; this secdepth reads %s.x" % (source, version or None, EVIDENCE_MAJOR))
+    results = data.get("results")
+    if not isinstance(results, list):
+        return errors + ["%s: results must be a list" % source]
+    for i, row in enumerate(results):
+        where = "%s: results[%d]" % (source, i)
+        if not isinstance(row, dict):
+            errors.append(where + " must be an object")
+            continue
+        for field in ("advisory_id", "component_id"):
+            if not isinstance(row.get(field), str):
+                errors.append("%s.%s must be a string" % (where, field))
+        if row.get("proposed_reachability") not in VERDICTS:
+            errors.append("%s.proposed_reachability must be one of %s" % (where, ", ".join(sorted(VERDICTS))))
+        if not isinstance(row.get("facts"), list) or not all(isinstance(f, str) for f in row["facts"]):
+            errors.append("%s.facts must be a list of strings" % where)
+    return errors
+
+
 def check_artifact(data, matches, evidence=None):
     """Compiled artifacts have no source to search: record where each component was found and leave
     reachability `unknown` for review (or a decompile step) instead of guessing."""
@@ -416,8 +451,16 @@ def main(argv=None):
         fixes, note = fix_check(data, matches, args.project, match.Matcher(cache_dir=cache))
     code_evidence = None
     if args.evidence:
-        rows = json.loads(pathlib.Path(args.evidence).read_text(encoding="utf-8")).get("results", [])
-        code_evidence = {(r["advisory_id"], r["component_id"]): r for r in rows}
+        try:
+            raw = json.loads(pathlib.Path(args.evidence).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            print("cannot read %s: %s" % (args.evidence, exc), file=sys.stderr)
+            return 1
+        problems = validate_evidence(raw, args.evidence)
+        if problems:
+            print("\n".join(problems), file=sys.stderr)
+            return 1
+        code_evidence = {(r["advisory_id"], r["component_id"]): r for r in raw["results"]}
     result = check(data, matches, args.project, fixes, evidence=code_evidence)
     if note:
         result["fix_check_note"] = note

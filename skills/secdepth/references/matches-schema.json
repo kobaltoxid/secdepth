@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Secdepth advisory matches",
+  "description": "Written by match.py. Lists only the fields other tools may rely on; producers may add optional fields in any 1.x version.",
+  "type": "object",
+  "required": ["schema", "schema_version", "advisories"],
+  "properties": {
+    "schema": {"const": "secdepth-matches"},
+    "schema_version": {"type": "string", "pattern": "^1\\.[0-9]+$"},
+    "advisories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "affected"],
+        "properties": {
+          "id": {"type": "string", "description": "CVE ID when one exists, otherwise GHSA or OSV ID."},
+          "summary": {"type": "string"},
+          "details": {"type": "string", "description": "Advisory text; secpeel evidence looks for class and function names in it."},
+          "withdrawn": {"type": ["string", "null"]},
+          "affected": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["component_id"],
+              "properties": {
+                "component_id": {"type": "string", "description": "ID of an inventory component."},
+                "fixed": {"type": "array", "items": {"type": "string"}}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

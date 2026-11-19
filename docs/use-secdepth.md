@@ -37,4 +37,5 @@ Confirm that the renderer produced `report.json` and `report.html` in the reques
 - [Report schema](../skills/secdepth/references/report-schema.json)
 - [Research and evidence guidance](../skills/secdepth/references/research-guidance.md)
 - [Report output reference](report-output.md)
+- [Hand-off formats](handoff-formats.md)
 - [Project README](../README.md)

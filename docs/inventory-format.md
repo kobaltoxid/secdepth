@@ -35,5 +35,6 @@ It prints each problem and exits with status 1, or prints the component count an
 
 ## Related
 
+- [Hand-off formats](handoff-formats.md)
 - [Report output reference](report-output.md)
 - [Use the Secdepth skill](use-secdepth.md)

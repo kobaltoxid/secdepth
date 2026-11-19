@@ -219,3 +219,53 @@ class ArtifactEvidenceTests(unittest.TestCase):
         row = result["results"][0]
         self.assertEqual((row["proposed_reachability"], row["confidence"]), ("conditional", "medium"))
         self.assertIn("Class Parser is present", " ".join(row["evidence"]))
+
+
+class EvidenceContractTests(unittest.TestCase):
+    """secpeel writes evidence.json; secdepth must accept what it writes today and reject what it cannot read."""
+    FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "secpeel-evidence-1.0.json"
+
+    def load(self):
+        return json.loads(self.FIXTURE.read_text())
+
+    def test_accepts_the_producer_fixture(self):
+        self.assertEqual(check.validate_evidence(self.load()), [])
+
+    def test_accepts_extra_optional_fields_and_minor_versions(self):
+        data = self.load()
+        data["schema_version"] = "1.4"
+        data["generator"] = {"name": "secpeel"}
+        data["results"][0]["new_hint"] = "ignored"
+        self.assertEqual(check.validate_evidence(data), [])
+
+    def test_accepts_empty_results(self):
+        data = self.load()
+        data["results"] = []
+        self.assertEqual(check.validate_evidence(data), [])
+
+    def test_rejects_unsupported_major_version(self):
+        data = self.load()
+        data["schema_version"] = "2.0"
+        problems = check.validate_evidence(data, "ev.json")
+        self.assertTrue(any("ev.json" in p and "2.0" in p for p in problems), problems)
+
+    def test_rejects_missing_required_fields(self):
+        data = self.load()
+        del data["results"]
+        self.assertIn("ev.json: results must be a list", check.validate_evidence(data, "ev.json"))
+        data = self.load()
+        del data["results"][0]["facts"]
+        self.assertTrue(any("results[0].facts" in p for p in check.validate_evidence(data)))
+
+    def test_cli_rejects_a_bad_file(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = pathlib.Path(tmp.name)
+        data = inventory.new_inventory("t", "0", "artifact", "a.tar", "artifact:a.tar@unknown")
+        data["components"] = [comp("artifact:a.tar@unknown", "a.tar", root=True)]
+        (root / "inv.json").write_text(json.dumps(data))
+        (root / "m.json").write_text(json.dumps({"advisories": []}))
+        bad = self.load()
+        bad["schema_version"] = "2.0"
+        (root / "ev.json").write_text(json.dumps(bad))
+        self.assertEqual(check.main([str(root / "inv.json"), str(root / "m.json"), "--evidence", str(root / "ev.json")]), 1)
