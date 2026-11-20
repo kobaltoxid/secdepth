@@ -40,7 +40,7 @@ Components without a package identity, such as native libraries, are matched thr
 
 Include your remediation deadlines or priority rules if they should guide the report. See the [use guide](docs/use-secdepth.md) and the [inventory format](docs/inventory-format.md).
 
-![A source project goes to Resolve and a secpeel inventory goes straight to Match. Match, Check and Draft run as deterministic scripts, and only the flagged findings go to model review, which writes the JSON and HTML reports.](docs/diagrams/secdepth-flow.svg)
+![A source project's lockfiles go to Resolve, and a secpeel inventory goes straight to Match. Resolve, Match, Check and Draft run as deterministic scripts; only the flagged findings go to model review, which produces the JSON and HTML reports.](docs/diagrams/secdepth-flow.svg)
 
 Figure 1. Scripts build the draft; the model reviews only the findings they flag. [D2 source](docs/diagrams/secdepth-flow.d2)
 
