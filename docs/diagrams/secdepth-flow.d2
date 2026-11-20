@@ -1,4 +1,4 @@
-direction: down
+direction: right
 
 vars: {
   # Fills sit at the same lightness and saturation so yellow and green read as one family.
@@ -164,13 +164,13 @@ classes: {
 }
 
 project: Source project {class: external}
-inventory: secpeel inventory {class: store}
+inventory: "secpeel\ninventory" {class: store}
 
-scripts: "Deterministic scripts\nresolve · match · check · draft" {class: owned}
+scripts: "Scripts\nresolve · match\ncheck · draft" {class: owned}
 review: Model review {class: external}
-reports: JSON + HTML reports {class: store}
+reports: Reports {class: store}
 
 project -> scripts: lockfiles {class: flow}
 inventory -> scripts: components {class: flow}
-scripts -> review: flagged findings {class: flow}
-review -> reports: summary {class: flow}
+scripts -> review: flagged {class: flow}
+review -> reports {class: flow}
